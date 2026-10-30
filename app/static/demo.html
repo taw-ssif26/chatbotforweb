@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Widget test page</title>
+<style>body{font:16px/1.6 system-ui,sans-serif;max-width:640px;margin:12vh auto;padding:0 20px;color:#16202e}code{background:#eef1f6;padding:2px 6px;border-radius:4px}</style></head>
+<body><h1>Widget test page</h1>
+<p>This page behaves like any customer website. The chat bubble should appear in the corner.</p>
+<p>Use <code>/demo?bot=YOUR_BOT_KEY</code>.</p>
+<script>
+  var k = new URLSearchParams(location.search).get('bot');
+  if (k) { var s = document.createElement('script'); s.src = '/widget.js'; s.async = true; s.dataset.bot = k; document.body.appendChild(s); }
+</script></body></html>

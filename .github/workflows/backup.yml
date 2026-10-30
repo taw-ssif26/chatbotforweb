@@ -1,0 +1,19 @@
+name: weekly-db-backup
+on:
+  schedule: [{ cron: "0 3 * * 0" }]
+  workflow_dispatch: {}
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          docker run --rm -e DATABASE_URL postgres:17-alpine sh -c 'pg_dump "$DATABASE_URL" --no-owner' | gzip > backup.sql.gz
+          test -s backup.sql.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: db-backup
+          path: backup.sql.gz
+          retention-days: 30
