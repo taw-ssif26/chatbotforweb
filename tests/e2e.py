@@ -21,6 +21,8 @@ FAKE = {"say": ""}
 
 async def fake_stream(provider, model, key, system, messages, max_tokens=700):
     FAKE["system"], FAKE["call"] = system, (provider, model, key)
+    if key == "sk-fail-key-12345":
+        raise llm.LLMError("Incorrect API key provided", 401)
     for part in ["Hello ", "from ", "the bot." + FAKE["say"]]:
         yield part
 
@@ -122,6 +124,19 @@ async def main():
         await chat("grok?", "sess-cm-0002"); assert FAKE["call"] == ("xai", "grok-test-1", "xai-testkey12345")
         assert (await c.patch(f"/api/bots/{bid}", json={"api_key_id": kid, "custom_model": None}, headers=H(tok))).status_code == 200
         assert (await c.patch(f"/api/bots/{bid}", json={"api_key_id": None, "custom_model": "needs-key"}, headers=H(tok))).status_code == 400
+        # a failing provider is explained to the owner (never to visitors) and clears once fixed
+        await c.post("/api/keys", json={"provider": "openai", "label": "broken", "key": "sk-fail-key-12345"}, headers=H(tok))
+        fid = next(k["id"] for k in (await c.get("/api/keys", headers=H(tok))).json() if k["label"] == "broken")
+        assert (await c.patch(f"/api/bots/{bid}", json={"api_key_id": fid}, headers=H(tok))).status_code == 200
+        r = await chat("will fail", "sess-err-0001"); assert "having trouble" in r.text and "Incorrect API key" not in r.text  # visitors never see provider details
+        hl = (await c.get(f"/api/bots/{bid}/health", headers=H(tok))).json()
+        assert any(x["status"] == "fail" and "rejected the API key" in x["fix"] for x in hl), hl
+        tm = (await c.post(f"/api/bots/{bid}/test-model", headers=H(tok))).json()
+        assert tm["ok"] is False and "rejected the API key" in tm["error"], tm
+        assert (await c.patch(f"/api/bots/{bid}", json={"api_key_id": kid}, headers=H(tok))).status_code == 200
+        tm = (await c.post(f"/api/bots/{bid}/test-model", headers=H(tok))).json()
+        assert tm["ok"] is True and tm["reply"], tm
+        assert not any(x["status"] == "fail" for x in (await c.get(f"/api/bots/{bid}/health", headers=H(tok))).json())
         await deps.db.pool.execute("UPDATE usage SET total_msgs = 4")
 
         # COST CAPS: total monthly cap applies even on the client's own key

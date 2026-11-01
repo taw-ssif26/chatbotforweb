@@ -69,6 +69,9 @@ let n = 0; const ok = m => console.log('  ok ' + (++n) + ' ' + m);
   if (!key || !snip.includes('/widget.js') || !snip.includes('async')) throw new Error('bad snippet: ' + snip);
   ok('one-line snippet: ' + snip);
 
+  d.querySelector('[data-act=testmodel]').click();
+  await waitFor(() => text(d).includes('answered through'), 'model test result'); ok('"Test the AI model" reports the model answered');
+
   // --- widget on a third-party origin
   const site = await JSDOM.fromURL('about:blank').catch(() => null);
   const page = new JSDOM(`<!doctype html><body><h1>Customer site</h1><script src="${BASE}/widget.js" data-bot="${key}" async></script></body>`,
@@ -84,7 +87,7 @@ let n = 0; const ok = m => console.log('  ok ' + (++n) + ' ' + m);
   sr.querySelector('textarea').value = 'When do you open?'; submit(page.window, sr.querySelector('form'));
   await waitFor(() => { const m = sr.querySelectorAll('.m.bot'); return m[m.length - 1].textContent.includes('Hello from the bot.'); }, 'streamed answer');
   ok('streamed answer rendered in the widget');
-  if (!page.window.localStorage.getItem('aichat_' + key + 'h')) throw new Error('history not persisted'); ok('conversation persisted for page reloads');
+  await waitFor(() => page.window.localStorage.getItem('aichat_' + key + 'h'), 'history saved after the stream ends'); ok('conversation persisted for page reloads');
 
   // --- widget on a forbidden origin must not mount
   const evil = new JSDOM(`<!doctype html><body><script src="${BASE}/widget.js" data-bot="${key}" async></script></body>`,

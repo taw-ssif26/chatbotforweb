@@ -392,11 +392,40 @@ async def bot_health(bid: int, u: dict = Depends(current_user)):
         out.append(chk("ok", f"Answers with {model['label']} using " + ("the included key" if platform else "your own key")))
     else:
         out.append(chk("fail", "No model can answer yet", "Add your API key under API keys and select it in Settings, or ask the owner to enable a model and add a platform key."))
+    if bot["last_error"]:
+        shared = bot["last_error_platform"] and u["role"] != "admin"
+        out.append(chk("fail", "The last visitor chat failed",
+                       "The included AI service had a problem. Tell your provider, or switch this bot to your own API key under Settings." if shared else bot["last_error"]))
     n = await db.pool.fetchval("SELECT count(*) FROM sources WHERE bot_id=$1", bid)
     out.append(chk("ok", f"{n} knowledge source(s) added") if n else chk("warn", "No knowledge added yet", "The bot will only use its instructions. Add text, a page or a file under Knowledge."))
     out.append(chk("ok", "Allowed websites: " + ", ".join(bot["allowed_domains"])) if bot["allowed_domains"]
                else chk("warn", "Allowed websites is empty", "Any site can use this bot. Add your own domain in Settings."))
     return out
+
+
+@router.post("/bots/{bid}/test-model")
+async def test_model(bid: int, u: dict = Depends(current_user)):
+    """Sends one tiny message through the exact path a visitor's chat uses and reports the provider's real answer."""
+    bot = await own_bot(bid, u)
+    if limited(f"testmodel:{u['id']}", 10, 3600):
+        raise HTTPException(429, "10 tests per hour. Wait a bit, or check the checklist above.")
+    model, key, platform = await pick_model(bot, plan_for(u["role"], u["plan"]))
+    if not model:
+        return {"ok": False, "error": "No model can answer yet. Add your API key and select it in Settings, or ask the owner to enable a model and add a platform key."}
+    try:
+        reply = ""
+        async for t in llm.stream(model["provider"], model["model_id"], key, "Reply with the single word OK.", [{"role": "user", "content": "Test"}], max_tokens=20):
+            reply += t
+    except llm.LLMError as e:
+        msg = llm.explain(model["provider"], model["model_id"], e)
+        if platform and u["role"] != "admin":
+            msg = "The included AI service failed. Tell your provider, or switch this bot to your own API key under Settings."
+        return {"ok": False, "model": model["label"], "error": msg}
+    except Exception:
+        log.exception("test-model failed")
+        return {"ok": False, "model": model["label"], "error": "Could not reach the AI provider. Try again in a minute."}
+    await db.pool.execute("UPDATE bots SET last_error=NULL, last_error_at=NULL WHERE id=$1", bid)
+    return {"ok": True, "model": model["label"], "provider": model["provider"], "key": "the included key" if platform else "your own key", "reply": reply.strip()[:60] or "(empty reply)"}
 
 
 class SiteIn(BaseModel):

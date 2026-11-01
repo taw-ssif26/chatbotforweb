@@ -11,11 +11,43 @@ PROVIDERS = {
     "xai": "https://api.x.ai/v1",   # xAI Grok (not to be confused with Groq)
 }
 KEY_PREFIXES = {"xai-": "xai", "gsk_": "groq", "sk-ant-": "anthropic", "sk-or-": "openrouter"}  # unambiguous prefixes
-client = httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10), limits=httpx.Limits(max_connections=200))
+client = httpx.AsyncClient(
+    timeout=httpx.Timeout(60, connect=10), limits=httpx.Limits(max_connections=200),
+    headers={"User-Agent": "chatbot-saas/1.0"},  # some providers sit behind bot filters that dislike default library agents
+)
 
 
 class LLMError(Exception):
-    pass
+    def __init__(self, message: str, status: int = 0):
+        super().__init__(message)
+        self.status = status
+
+
+def _detail(body: str) -> str:
+    try:
+        j = json.loads(body)
+        e = j.get("error", j) if isinstance(j, dict) else j
+        return str(e.get("message") if isinstance(e, dict) and e.get("message") else e)[:200]
+    except ValueError:
+        return body.strip()[:200]
+
+
+def explain(provider: str, model: str, e: Exception) -> str:
+    """Plain-English reason a model call failed, for the bot owner (never shown to website visitors)."""
+    st, d = getattr(e, "status", 0), str(e)[:200]
+    if st in (401, 403):
+        why = f"{provider} rejected the API key. Check that it is active, copied fully, and added under the right provider."
+    elif st == 404:
+        why = f"{provider} has no model called '{model}' for this key. Pick another model (use 'Load my models')."
+    elif st == 429:
+        why = f"{provider} says rate limit or credit/quota reached. Wait a minute, or check billing and free-tier limits on your provider account."
+    elif st == 400:
+        why = f"{provider} refused the request for model '{model}'."
+    elif st >= 500:
+        why = f"{provider} is having an outage right now. Try again shortly."
+    else:
+        why = f"Could not reach {provider}."
+    return f"{why} Details: {d}" if d else why
 
 
 class LLMAuthError(LLMError):
@@ -51,28 +83,39 @@ async def stream(provider: str, model: str, key: str, system: str, messages: lis
             "model": model, "max_tokens": max_tokens, "stream": True,
             "messages": [{"role": "system", "content": system}] + messages,
         }
-    async with client.stream("POST", url, headers=headers, json=body) as r:
-        if r.status_code >= 400:
-            detail = (await r.aread()).decode(errors="replace")[:300]
-            raise LLMError(f"{provider} {r.status_code}: {detail}")
-        async for line in r.aiter_lines():
-            if not line.startswith("data:"):
-                continue
-            data = line[5:].strip()
-            if not data or data == "[DONE]":
-                continue
-            try:
-                ev = json.loads(data)
-            except ValueError:
-                continue
-            if provider == "anthropic":
-                if ev.get("type") == "content_block_delta" and ev.get("delta", {}).get("type") == "text_delta":
-                    yield ev["delta"]["text"]
-                elif ev.get("type") == "error":
-                    raise LLMError(f"anthropic stream error: {ev.get('error')}")
-            else:
-                ch = ev.get("choices") or []
-                if ch:
-                    t = (ch[0].get("delta") or {}).get("content")
-                    if t:
-                        yield t
+    for attempt in (1, 2):
+        async with client.stream("POST", url, headers=headers, json=body) as r:
+            if r.status_code >= 400:
+                text = (await r.aread()).decode(errors="replace")
+                # Newer OpenAI models reject max_tokens and want max_completion_tokens: retry once.
+                if attempt == 1 and r.status_code == 400 and "max_completion_tokens" in text and "max_tokens" in body:
+                    body["max_completion_tokens"] = body.pop("max_tokens")
+                    continue
+                raise LLMError(_detail(text), r.status_code)
+            async for chunk in _events(provider, r):
+                yield chunk
+            return
+
+
+async def _events(provider: str, r):
+    async for line in r.aiter_lines():
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if not data or data == "[DONE]":
+            continue
+        try:
+            ev = json.loads(data)
+        except ValueError:
+            continue
+        if provider == "anthropic":
+            if ev.get("type") == "content_block_delta" and ev.get("delta", {}).get("type") == "text_delta":
+                yield ev["delta"]["text"]
+            elif ev.get("type") == "error":
+                raise LLMError(str((ev.get("error") or {}).get("message", ev.get("error")))[:200], 500)
+        else:
+            ch = ev.get("choices") or []
+            if ch:
+                t = (ch[0].get("delta") or {}).get("content")
+                if t:
+                    yield t

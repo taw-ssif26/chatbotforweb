@@ -28,6 +28,7 @@
 - Migrations: app/migrations/*.sql applied once each at startup (advisory lock).
 - Widget failures are explicit: config endpoint returns the reason (403/404 detail), widget console.warn('[AIChat] ...'), /demo prints it, Install tab has health checklist + site checker.
 - Providers: anthropic, openai, groq, xai (Grok), openrouter. Client own-key bots can use any model ID (bots.custom_model, migration 002); keys are verified with the provider on save and model lists are loaded from the key.
+- LLM failures: visitors see a generic line; the owner sees llm.explain() text via bots.last_error (Install checklist) and the 'Test the AI model' button. OpenAI max_tokens->max_completion_tokens retry built in.
 - Single uvicorn worker: rate limiter is in-memory. Move to Redis before scaling out.
 - No Alembic yet: schema.sql is idempotent create-only. Add migrations before changing existing tables in production.
 ## Next Step: Deploy to Render + Neon (see README), set env vars, log in, fill Settings -> marketing profile (site + works), add platform keys, create a test client, embed on your portfolio.

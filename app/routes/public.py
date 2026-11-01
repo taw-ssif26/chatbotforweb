@@ -237,6 +237,8 @@ async def chat(body: ChatIn, request: Request):
             async for t in llm.stream(model["provider"], model["model_id"], key, system, msgs):
                 out += t
                 yield sse({"t": t})
+            if bot["last_error"]:
+                await db.pool.execute("UPDATE bots SET last_error=NULL, last_error_at=NULL WHERE id=$1", bot["id"])
             if out:
                 await db.pool.executemany(
                     "INSERT INTO messages(conversation_id, role, content) VALUES($1,$2,$3)",
@@ -244,8 +246,11 @@ async def chat(body: ChatIn, request: Request):
                 if ag and not conv["promo_shown"] and mentions_builder(out, ag):
                     await db.pool.execute("UPDATE conversations SET promo_shown = TRUE WHERE id=$1", cid)
             yield sse({"done": True})
-        except llm.LLMError:
-            log.exception("llm error (bot %s, model %s)", bot["id"], model["model_id"])
+        except llm.LLMError as e:
+            log.error("llm error (bot %s, %s/%s): %s %s", bot["id"], model["provider"], model["model_id"], e.status, e)
+            await db.pool.execute(
+                "UPDATE bots SET last_error=$2, last_error_platform=$3, last_error_at=now() WHERE id=$1",
+                bot["id"], llm.explain(model["provider"], model["model_id"], e), platform)
             yield sse({"error": "The assistant is having trouble right now. Please try again shortly."})
         except Exception:
             log.exception("chat failure")

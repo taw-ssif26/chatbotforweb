@@ -33,6 +33,13 @@ Shadow DOM isolates styles. Test any bot at `/demo?bot=BOT_KEY`.
 3. The Install tab's checklist confirms which model answers. Messages on your own key are not limited by your plan.
 The Model dropdown only lists models the owner enabled (Owner → Models); your own key is not limited to that list.
 
+## "The assistant is having trouble right now"
+Visitors only ever see that generic line. The real reason is shown to you:
+1. Open the bot, **Install** tab, click **Test the AI model**. It sends one tiny message through the same path as a visitor and shows the provider's actual answer in plain English (bad key, wrong model ID, no credits, rate limit, outage).
+2. The **Is everything ready?** list also shows "The last visitor chat failed" with the reason until a chat succeeds again.
+3. Server side, the same error is in the logs (`llm error (bot N, provider/model): status message`).
+Most common: model ID not available to that key (use **Load my models**), key under the wrong provider, free-tier rate limit or no credits.
+
 ## "I can't see the chat bubble": fix it in 2 minutes
 1. Open the bot, **Install** tab. The **Is everything ready?** list shows exactly what is wrong (subscription, paused bot, no usable model or key, allowed websites).
 2. Type your website address into **Check my website**. It tells you whether the snippet is in the page and whether the site is allowed.

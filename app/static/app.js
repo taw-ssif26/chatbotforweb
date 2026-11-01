@@ -201,7 +201,8 @@ const checkList = list => `<ul class="checks">${list.map(c => `<li class="chk ${
 async function installTab(bot) {
   const health = await api(`/bots/${bot.id}/health`);
   const snip = `<script src="${location.origin}/widget.js" data-bot="${bot.public_key}" async></script>`;
-  return `<div class="card"><h2>Is everything ready?</h2>${checkList(health)}</div>
+  return `<div class="card"><h2>Is everything ready?</h2>${checkList(health)}
+    <div class="row"><button class="btn ghost" data-act="testmodel" data-bot="${bot.id}">Test the AI model</button></div><div id="modelresult"></div></div>
   <div class="card"><h2>Add the chatbot to your website</h2>
     <p>Paste this line just before the closing <code>&lt;/body&gt;</code> tag on every page where the chat should appear. It works on WordPress, Shopify, Wix, Webflow, plain HTML and any other site that lets you add a script.</p>
     <code class="code" id="snip">${E(snip)}</code>
@@ -212,6 +213,13 @@ async function installTab(bot) {
     <div class="row"><div><label for="cs">Page address</label><input id="cs" name="url" placeholder="https://yourwebsite.com" required></div><button class="btn">Check my website</button></div>
     <div id="siteresult"></div></form>`;
 }
+actions.testmodel = async el => {
+  const box = document.getElementById('modelresult'); box.innerHTML = '<p class="hint">Asking the model…</p>';
+  const r = await api(`/bots/${el.dataset.bot}/test-model`, { method: 'POST' });
+  box.innerHTML = checkList([r.ok
+    ? { status: 'ok', label: `${r.model} answered through ${r.key}: “${r.reply}”` }
+    : { status: 'fail', label: `${r.model ? r.model + ' failed' : 'The AI model cannot answer'}`, fix: r.error }]);
+};
 forms.checksite = async f => {
   const r = await api(`/bots/${f.dataset.bot}/check-site`, { json: fd(f) });
   document.getElementById('siteresult').innerHTML = checkList(r);
