@@ -79,5 +79,18 @@ fs.mkdirSync('/tmp/shots', { recursive: true });
   for (const h of ['knowledge', 'settings', 'chats']) { await p.goto(`${B}/#/bot/${bid}/${h}`, { waitUntil: 'networkidle0' }); await sleep(300); await p.screenshot({ path: `/tmp/shots/6_dash_${h}.png`, fullPage: true }); }
   for (const h of ['admin/clients', 'admin/models', 'admin/settings', 'keys', 'account']) { await p.goto(`${B}/#/${h}`, { waitUntil: 'networkidle0' }); await sleep(300); await p.screenshot({ path: `/tmp/shots/7_${h.replace('/', '_')}.png`, fullPage: true }); }
   ok('dashboard works in real Chrome; install tab shows the health checklist'); await p.close();
+  // 6. an ordinary client clicks Manage, even when the server answers 502 (sleeping free-tier instance) on the first try
+  await api('/admin/clients', { json: { email: 'cl@x.com', name: 'Client', password: 'client-pass-1', plan: 'starter', days: 30 } }, t);
+  p = await open(B + '/', { width: 1200, height: 900 });
+  await p.type('#em', 'cl@x.com'); await p.type('#pw', 'client-pass-1'); await p.click('form[data-form=login] button'); await p.waitForSelector('.layout');
+  await p.type('#nb', 'Client Bot'); await p.click('form[data-form=newbot] button'); await p.waitForFunction(() => document.querySelector('main').innerText.includes('Paste text'));
+  await p.goto(B + '/#/bots', { waitUntil: 'networkidle0' });
+  await p.setRequestInterception(true); let failed = 0;
+  p.on('request', rq => { if (rq.url().match(/\/api\/bots\/\d+$/) && rq.method() === 'GET' && failed < 2) { failed++; rq.respond({ status: 502, contentType: 'text/html', body: '<html>Bad gateway</html>' }); } else rq.continue(); });
+  await p.waitForSelector('a[href^="#/bot/"]'); await sleep(500);
+  await p.click('a[href^="#/bot/"]');
+  await p.waitForFunction(() => document.querySelector('main').innerText.includes('Paste text'), { timeout: 15000 });
+  must(failed === 2, 'expected two simulated 502s, got ' + failed);
+  await p.screenshot({ path: '/tmp/shots/8_client_manage.png' }); await p.close(); ok('client clicks Manage: survives two 502s from a sleeping server and loads');
   await br.close(); srv.close(); console.log('BROWSER PASSED'); process.exit(0);
 })().catch(e => { console.error('BROWSER FAILED:', e.message); process.exit(1); });

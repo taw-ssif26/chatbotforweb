@@ -9,16 +9,27 @@ const fmt = d => d ? new Date(d).toLocaleDateString(undefined, { year: 'numeric'
 const tag = (t, c = '') => `<span class="tag ${c}">${E(t)}</span>`;
 const num = n => Number(n).toLocaleString();
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function api(path, o = {}) {
-  const init = { method: o.method || (o.json !== undefined || o.form ? 'POST' : 'GET'), headers: {} };
-  if (TOKEN) init.headers.Authorization = 'Bearer ' + TOKEN;
-  if (o.json !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(o.json); }
-  if (o.form) init.body = o.form;
-  const r = await fetch('/api' + path, init);
-  if (r.status === 401 && path !== '/auth/login') { logout(); throw new Error('Please sign in again'); }
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(typeof j.detail === 'string' ? j.detail : 'Request failed');
-  return j;
+  const method = o.method || (o.json !== undefined || o.form ? 'POST' : 'GET');
+  for (let attempt = 1; ; attempt++) {
+    const init = { method, headers: {} };
+    if (TOKEN) init.headers.Authorization = 'Bearer ' + TOKEN;
+    if (o.json !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(o.json); }
+    if (o.form) init.body = o.form;
+    let r;
+    try { r = await fetch('/api' + path, init); }
+    catch (e) {
+      if (method === 'GET' && attempt < 4) { toast('Waking up the server…'); await sleep(2500 * attempt); continue; }
+      throw new Error('Cannot reach the server. Check your internet connection and try again.');
+    }
+    // A sleeping free-tier server answers 502/503/504 until it is awake: retry reads automatically.
+    if ([502, 503, 504].includes(r.status) && method === 'GET' && attempt < 4) { toast('Waking up the server…'); await sleep(2500 * attempt); continue; }
+    if (r.status === 401 && path !== '/auth/login') { logout(); throw new Error('Please sign in again'); }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(typeof j.detail === 'string' ? j.detail : `Request failed (HTTP ${r.status}). If this keeps happening, the owner can check Owner → Status.`);
+    return j;
+  }
 }
 let toastTimer;
 function toast(msg, bad) {
@@ -69,7 +80,7 @@ function shell(a, b, body) {
   const admin = ME.role === 'admin', ad = a === 'admin' ? (b || 'clients') : '';
   return `<div class="layout"><aside><div class="brand">Chatbot Console</div><nav>
     ${nav('#/bots', 'Chatbots', a === 'bots' || a === 'bot')}${nav('#/keys', 'API keys', a === 'keys')}${nav('#/account', 'Account', a === 'account')}
-    ${admin ? `<div class="sep">Owner</div>${nav('#/admin/clients', 'Clients', ad === 'clients')}${nav('#/admin/models', 'Models', ad === 'models')}${nav('#/admin/settings', 'Settings', ad === 'settings')}` : ''}
+    ${admin ? `<div class="sep">Owner</div>${nav('#/admin/clients', 'Clients', ad === 'clients')}${nav('#/admin/models', 'Models', ad === 'models')}${nav('#/admin/settings', 'Settings', ad === 'settings')}${nav('#/admin/status', 'Status', ad === 'status')}` : ''}
     </nav><div class="who"><span>${E(ME.email)}</span><button class="link" data-act="logout">Sign out</button></div></aside>
     <main>${ME.live ? '' : '<div class="banner">Your subscription is not active, so your chatbots are paused. Contact your provider to renew.</div>'}${body}</main></div>`;
 }
@@ -263,7 +274,7 @@ forms.pw = async f => {
 
 /* ---------- admin ---------- */
 async function adminView(tab) {
-  const tabs = { clients: adminClients, models: adminModels, settings: adminSettings };
+  const tabs = { clients: adminClients, models: adminModels, settings: adminSettings, status: adminStatus };
   return await (tabs[tab] || adminClients)();
 }
 async function adminClients() {
@@ -330,6 +341,13 @@ forms.addmodel = async f => { const v = fd(f); v.premium_only = v.premium_only =
 actions.mtoggle = async el => { await api('/admin/models/' + el.dataset.id, { method: 'PATCH', json: { [el.dataset.field]: el.dataset.val === 'true' } }); route(); };
 actions.mdel = async el => { if (!confirm('Delete this model?')) return; await api('/admin/models/' + el.dataset.id, { method: 'DELETE' }); route(); };
 
+async function adminStatus() {
+  const r = await api('/admin/status');
+  return `<h1>Status</h1><p class="sub">What the server can see right now, and the recent errors it recorded.</p>
+  <div class="card">${checkList(r.checks)}</div>
+  <h2>Recent server errors</h2>${r.errors.length ? `<div class="wrap"><table><tr><th>Ref</th><th>When</th><th>Request</th><th>Error</th></tr>${r.errors.map(e =>
+    `<tr><td><code>${E(e.ref)}</code></td><td>${E(e.at)}</td><td>${E(e.request)}</td><td>${E(e.error)}</td></tr>`).join('')}</table></div>` : '<p class="empty">None since the last restart.</p>'}`;
+}
 async function adminSettings() {
   const s = await api('/admin/settings'), a = s.agency;
   return `<h1>Settings</h1>

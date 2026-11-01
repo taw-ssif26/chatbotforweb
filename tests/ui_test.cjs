@@ -125,6 +125,7 @@ let n = 0; const ok = m => console.log('  ok ' + (++n) + ' ' + m);
   fill(f, 'custom_model', 'my-custom-model'); submit(w, f);
   await waitFor(() => d.getElementById('toast').textContent === 'Saved', 'saved with custom model');
   await waitFor(() => { const i = d.querySelector('#cm'); return i && i.value === 'my-custom-model'; }, 'custom model persisted'); ok('any model ID from your own key can be saved and is remembered');
+  await go('#/admin/status', () => text(d).includes('Database is reachable'), 'status page'); ok('Owner → Status page shows the health checks');
   await go('#/account', () => text(d).includes('Visitor messages this month'), 'account'); ok('account page renders usage');
 
   if (errors.length) throw new Error('JS errors:\n' + errors.join('\n'));

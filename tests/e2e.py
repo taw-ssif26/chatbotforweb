@@ -40,7 +40,7 @@ rag.embed, rag.web_search, llm.stream, llm.list_models = fake_embed, fake_web, f
 
 async def main():
     async with app.router.lifespan_context(app):
-        c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost:8000")
+        c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://localhost:8000")
         H = lambda t: {"Authorization": "Bearer " + t}
         login = lambda e, p: c.post("/api/auth/login", json={"email": e, "password": p})
         r = await login("owner@test.dev", "owner-password-123"); assert r.status_code == 200, r.text
@@ -189,6 +189,17 @@ async def main():
         assert (await login("c1@x.com", "client-pass-2")).status_code == 429     # locked even with the right password
         assert (await c.get("/api/admin/stats", headers=H(adm))).json()["bots"] == 1
         assert (await c.get("/")).status_code == 200 and (await c.get("/widget.js")).status_code == 200
+        # unhandled errors: friendly JSON with a reference, recorded for Owner -> Status
+        from app import db as _db
+        real = _db.agency
+        async def boom(): raise RuntimeError("simulated failure")
+        _db.agency = boom
+        r = await c.get("/api/admin/settings", headers=H(adm)); _db.agency = real
+        assert r.status_code == 500 and "reference" in r.json()["detail"] and "simulated" not in r.text, r.text
+        st = (await c.get("/api/admin/status", headers=H(adm))).json()
+        assert any("simulated failure" in e["error"] and e["ref"] in r.json()["detail"] for e in st["errors"]), st
+        assert st["checks"][0]["status"] == "ok" and any("pgvector" in x["label"] for x in st["checks"]) and any("up to date" in x["label"] for x in st["checks"]), st["checks"]
+        assert (await c.get("/api/admin/status", headers=H(new_tok))).status_code == 403
         print("E2E PASSED")
 
 asyncio.run(main())

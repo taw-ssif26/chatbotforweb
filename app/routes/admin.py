@@ -5,7 +5,8 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from .. import db, llm, security
+from .. import db, errors, llm, security
+from ..config import settings
 from ..deps import require_admin
 from ..plans import CLIENT_PLANS, PLANS
 
@@ -183,3 +184,30 @@ async def set_platform_key(provider: str, body: PlatformKeyIn):
             "INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
             f"pk:{provider}", security.encrypt(k))
     return {"ok": True}
+
+
+# ---------- status ----------
+@router.get("/status")
+async def status():
+    def chk(status, label, fix=""):
+        return {"status": status, "label": label, "fix": fix}
+    out = []
+    try:
+        await db.pool.fetchval("SELECT 1")
+        out.append(chk("ok", "Database is reachable"))
+    except Exception as e:
+        return {"checks": [chk("fail", "Database is NOT reachable", f"{type(e).__name__}: {e}. Check DATABASE_URL (use Neon's direct connection string, not the pooled one).")], "errors": errors.recent()}
+    ver = await db.pool.fetchval("SELECT extversion FROM pg_extension WHERE extname='vector'")
+    out.append(chk("ok", f"pgvector {ver} installed") if ver else chk("fail", "pgvector extension is missing", "Run CREATE EXTENSION vector; or use a Postgres with pgvector (Neon, pgvector Docker image)."))
+    done = {r["name"] for r in await db.pool.fetch("SELECT name FROM schema_migrations")}
+    want = {f.name for f in db.MIGRATIONS.glob("*.sql")}
+    out.append(chk("ok", f"Database is up to date ({len(done)} migrations)") if want <= done else chk("fail", "Database migrations are missing: " + ", ".join(sorted(want - done)), "Restart the service; migrations run at startup."))
+    out.append(chk("ok", "Voyage embeddings key is set") if settings.voyage_api_key else chk("fail", "VOYAGE_API_KEY is not set", "Knowledge can't be indexed and bots can't search it until it is set."))
+    out.append(chk("ok", "Tavily web-search key is set") if settings.tavily_api_key else chk("warn", "TAVILY_API_KEY is not set", "Premium web search will be skipped."))
+    have = sorted(await db.platform_providers())
+    out.append(chk("ok", "Platform AI keys: " + ", ".join(have)) if have else chk("warn", "No platform AI key is set", "Bots without their own key can't answer. Add one under Owner → Settings."))
+    out.append(chk("ok", f"Public address: {settings.public_base_url}") if settings.public_base_url.startswith("https://") or "localhost" in settings.public_base_url
+               else chk("warn", f"PUBLIC_BASE_URL is {settings.public_base_url}", "Use your https:// address."))
+    errs = errors.recent()
+    out.append(chk("ok", "No server errors since the last restart") if not errs else chk("warn", f"{len(errs)} server error(s) since the last restart", "Listed below with a reference code."))
+    return {"checks": out, "errors": errs}

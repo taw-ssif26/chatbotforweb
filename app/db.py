@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pathlib import Path
 
 import asyncpg
@@ -8,7 +9,8 @@ from . import security
 from .llm import PROVIDERS
 from .config import settings
 
-pool: asyncpg.Pool | None = None
+log = logging.getLogger("db")
+pool = None  # RetryPool
 SCHEMA = (Path(__file__).parent / "schema.sql").read_text()
 
 DEFAULT_MODELS = [
@@ -30,6 +32,32 @@ DEFAULT_SETTINGS = {
 }
 
 
+class RetryPool:
+    """asyncpg pool that retries a query once when the connection died (serverless Postgres suspends idle compute)."""
+
+    def __init__(self, inner):
+        self._p = inner
+
+    def __getattr__(self, name):  # acquire(), close(), ... pass straight through
+        return getattr(self._p, name)
+
+    async def _try(self, name, *a, **k):
+        for attempt in (1, 2):
+            try:
+                return await getattr(self._p, name)(*a, **k)
+            except (asyncpg.PostgresConnectionError, asyncpg.InterfaceError, ConnectionResetError, OSError) as e:
+                if attempt == 2:
+                    raise
+                log.warning("database connection problem, retrying once: %s", e)
+                await asyncio.sleep(0.6)
+
+    async def fetch(self, *a, **k): return await self._try("fetch", *a, **k)
+    async def fetchrow(self, *a, **k): return await self._try("fetchrow", *a, **k)
+    async def fetchval(self, *a, **k): return await self._try("fetchval", *a, **k)
+    async def execute(self, *a, **k): return await self._try("execute", *a, **k)
+    async def executemany(self, *a, **k): return await self._try("executemany", *a, **k)
+
+
 async def init() -> None:
     global pool
     conn = await asyncpg.connect(settings.database_url)
@@ -38,10 +66,10 @@ async def init() -> None:
         await migrate(conn)
     finally:
         await conn.close()
-    pool = await asyncpg.create_pool(
+    pool = RetryPool(await asyncpg.create_pool(
         settings.database_url, min_size=0, max_size=10, init=register_vector,
         max_inactive_connection_lifetime=60,  # drop idle conns before Neon suspends compute (5 min) and kills them
-    )
+    ))
 
 
 async def migrate(conn) -> None:

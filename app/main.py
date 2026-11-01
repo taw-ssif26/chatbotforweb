@@ -5,10 +5,11 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, legal, llm, rag
+from . import db, errors, legal, llm, rag
 from .config import settings
 
 log = logging.getLogger("app")
@@ -86,6 +87,14 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.add_middleware(SecurityMiddleware)
 
 from .routes import admin, client, public  # noqa: E402
+
+
+@app.exception_handler(Exception)
+async def unhandled(request: Request, exc: Exception):
+    ref = errors.record(request, exc)
+    return JSONResponse({"detail": f"Server error (reference {ref}). The owner can see the details under Owner → Status."}, status_code=500)
+
+
 
 app.include_router(public.router)
 app.include_router(client.router)

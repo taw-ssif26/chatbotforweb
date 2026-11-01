@@ -33,6 +33,9 @@ Shadow DOM isolates styles. Test any bot at `/demo?bot=BOT_KEY`.
 3. The Install tab's checklist confirms which model answers. Messages on your own key are not limited by your plan.
 The Model dropdown only lists models the owner enabled (Owner → Models); your own key is not limited to that list.
 
+## "Request failed" in the dashboard
+The dashboard now retries page loads automatically while a free-tier server wakes up, and any real server error shows a **reference code**. Sign in as the owner and open **Owner → Status**: it checks the database, pgvector, migrations and keys, and lists recent server errors with their reference codes and the exact exception. Database connections that died while a serverless Postgres slept are retried once automatically.
+
 ## "The assistant is having trouble right now"
 Visitors only ever see that generic line. The real reason is shown to you:
 1. Open the bot, **Install** tab, click **Test the AI model**. It sends one tiny message through the same path as a visitor and shows the provider's actual answer in plain English (bad key, wrong model ID, no credits, rate limit, outage).
