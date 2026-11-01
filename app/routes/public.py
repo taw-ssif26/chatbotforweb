@@ -85,6 +85,10 @@ async def pick_model(bot, plan):
     if bot["api_key_id"]:
         key_row = await db.pool.fetchrow(
             "SELECT provider, key_enc FROM api_keys WHERE id=$1 AND user_id=$2", bot["api_key_id"], bot["user_id"])
+    if key_row and bot["custom_model"]:  # client's own key + any model ID their provider offers
+        k = security.decrypt(key_row["key_enc"])
+        if k:
+            return {"provider": key_row["provider"], "model_id": bot["custom_model"], "label": bot["custom_model"]}, k, False
     rows = await db.pool.fetch("SELECT * FROM models WHERE enabled ORDER BY (id=$1) DESC, id", bot["model_id"] or 0)
     have = await db.platform_providers()
     for m in rows:

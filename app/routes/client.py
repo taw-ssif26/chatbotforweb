@@ -100,10 +100,35 @@ async def add_key(body: KeyIn, u: dict = Depends(current_user)):
     if await db.pool.fetchval("SELECT count(*) FROM api_keys WHERE user_id=$1", u["id"]) >= 10:
         raise HTTPException(400, "Key limit reached (10)")
     k = body.key.strip()
+    guess = llm.provider_for_key(k)
+    if guess and guess != body.provider:
+        names = {"xai": "xAI (Grok)", "groq": "Groq", "anthropic": "Anthropic", "openrouter": "OpenRouter"}
+        raise HTTPException(400, f"This key looks like a {names[guess]} key. Choose provider '{guess}'.")
+    try:
+        await llm.list_models(body.provider, k)   # proves the key works before saving it
+    except llm.LLMAuthError:
+        raise HTTPException(400, f"{body.provider} rejected this key. Check that you copied it fully and that it is active.")
+    except Exception:
+        log.warning("could not verify %s key (provider unreachable); saving anyway", body.provider)
     await db.pool.execute(
         "INSERT INTO api_keys(user_id,provider,label,key_enc,hint) VALUES($1,$2,$3,$4,$5)",
         u["id"], body.provider, body.label.strip(), security.encrypt(k), f"{k[:4]}…{k[-4:]}")
     return {"ok": True}
+
+
+@router.get("/keys/{kid}/models")
+async def key_models(kid: int, u: dict = Depends(current_user)):
+    if limited(f"keymodels:{u['id']}", 20):
+        raise HTTPException(429, "Slow down a little")
+    row = await db.pool.fetchrow("SELECT provider, key_enc FROM api_keys WHERE id=$1 AND user_id=$2", kid, u["id"])
+    if not row:
+        raise HTTPException(404, "Key not found")
+    try:
+        return {"provider": row["provider"], "models": await llm.list_models(row["provider"], security.decrypt(row["key_enc"]))}
+    except llm.LLMAuthError:
+        raise HTTPException(400, "The provider rejected this key. It may have been revoked.")
+    except Exception:
+        raise HTTPException(502, "Could not reach the provider to list models. You can still type a model ID by hand.")
 
 
 @router.delete("/keys/{kid}")
@@ -167,6 +192,7 @@ class BotPatch(BaseModel):
     web_search: bool | None = None
     agency_promo: bool | None = None
     active: bool | None = None
+    custom_model: str | None = Field(default=None, max_length=120)
 
 
 def norm_domain(d: str) -> str:
@@ -195,18 +221,24 @@ async def patch_bot(bid: int, body: BotPatch, u: dict = Depends(require_live)):
         m = await db.pool.fetchrow("SELECT * FROM models WHERE id=$1 AND enabled", d["model_id"])
         if not m or (m["premium_only"] and not plan["premium_models"]):
             raise HTTPException(403, "That model is not available on your plan")
+    if "custom_model" in d:
+        d["custom_model"] = (d["custom_model"] or "").strip() or None
+        eff_key = d["api_key_id"] if "api_key_id" in d else await db.pool.fetchval("SELECT api_key_id FROM bots WHERE id=$1", bid)
+        if d["custom_model"] and not eff_key:
+            raise HTTPException(400, "A custom model ID needs one of your own API keys selected.")
+    custom = d["custom_model"] if "custom_model" in d else await db.pool.fetchval("SELECT custom_model FROM bots WHERE id=$1", bid)
     if d.get("api_key_id"):
         k = await db.pool.fetchrow("SELECT provider FROM api_keys WHERE id=$1 AND user_id=$2", d["api_key_id"], u["id"])
         if not k:
             raise HTTPException(400, "Unknown API key")
         cur_model = m or await db.pool.fetchrow(
             "SELECT m.* FROM models m JOIN bots b ON b.model_id=m.id WHERE b.id=$1", bid)
-        if not cur_model or cur_model["provider"] != k["provider"]:
+        if not custom and (not cur_model or cur_model["provider"] != k["provider"]):
             raise HTTPException(400, f"That key is for {k['provider']}. Pick a {k['provider']} model for this bot.")
     elif "api_key_id" not in d and m:
         # switching models while a key is attached: provider must still match
         kp = await db.pool.fetchval("SELECT k.provider FROM api_keys k JOIN bots b ON b.api_key_id=k.id WHERE b.id=$1", bid)
-        if kp and kp != m["provider"]:
+        if kp and kp != m["provider"] and not custom:
             raise HTTPException(400, f"This bot uses your {kp} key. Pick a {kp} model or remove the key first.")
     if not d:
         return {"ok": True}

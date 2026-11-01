@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     groq_api_key: str = ""
     openrouter_api_key: str = ""
+    xai_api_key: str = ""
 
     @model_validator(mode="after")
     def _safety(self):

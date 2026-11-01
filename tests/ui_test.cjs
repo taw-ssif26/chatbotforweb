@@ -113,6 +113,15 @@ let n = 0; const ok = m => console.log('  ok ' + (++n) + ' ' + m);
   await go('#/keys', () => d.querySelector('form[data-form=addkey]'), 'keys page');
   f = d.querySelector('form[data-form=addkey]'); fill(f, 'provider', 'openai'); fill(f, 'label', 'Mine'); fill(f, 'key', 'sk-test-1234567890'); submit(w, f);
   await waitFor(() => text(d).includes('sk-t…7890'), 'key row'); ok('client API key stored (only the hint is shown)');
+  await go(base + '/settings', () => d.querySelector('form[data-form=savebot]'), 'settings again');
+  f = d.querySelector('form[data-form=savebot]');
+  const opt = [...f.elements.api_key_id.options].find(o => o.textContent.includes('Mine')); if (!opt) throw new Error('saved key missing from the key dropdown');
+  f.elements.api_key_id.value = opt.value;
+  d.querySelector('[data-act=loadmodels]').click();
+  await waitFor(() => d.querySelectorAll('#mlist option').length >= 2, 'models loaded from the key'); ok('"Load my models" lists the models the key can use');
+  fill(f, 'custom_model', 'my-custom-model'); submit(w, f);
+  await waitFor(() => d.getElementById('toast').textContent === 'Saved', 'saved with custom model');
+  await waitFor(() => { const i = d.querySelector('#cm'); return i && i.value === 'my-custom-model'; }, 'custom model persisted'); ok('any model ID from your own key can be saved and is remembered');
   await go('#/account', () => text(d).includes('Visitor messages this month'), 'account'); ok('account page renders usage');
 
   if (errors.length) throw new Error('JS errors:\n' + errors.join('\n'));

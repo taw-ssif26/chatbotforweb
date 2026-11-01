@@ -23,6 +23,9 @@ async def fake_stream(provider, model, key, system, messages, max_tokens=700):
         await asyncio.sleep(0.05)
         yield part
 
-rag.embed, llm.stream = fake_embed, fake_stream
+async def fake_list(provider, key):
+    return ["gpt-4o", "gpt-4o-mini", "my-custom-model"]
+
+rag.embed, llm.stream, llm.list_models = fake_embed, fake_stream, fake_list
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8099, log_level="warning")

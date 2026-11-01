@@ -28,7 +28,12 @@ async def fake_stream(provider, model, key, system, messages, max_tokens=700):
 async def fake_web(query, n=4):
     return [{"title": "Paris weather", "url": "https://w.example/paris", "content": "Sunny tomorrow."}]
 
-rag.embed, rag.web_search, llm.stream = fake_embed, fake_web, fake_stream
+async def fake_list(provider, key):
+    if key.startswith("bad-key"):
+        raise llm.LLMAuthError("rejected")
+    return ["gpt-4o", "gpt-4o-mini", "my-model-x"]
+
+rag.embed, rag.web_search, llm.stream, llm.list_models = fake_embed, fake_web, fake_stream, fake_list
 
 
 async def main():
@@ -104,6 +109,20 @@ async def main():
         await chat("and refunds?", "sess-byo-0001")
         assert FAKE["call"] == ("openai", "gpt-4o-mini", "sk-live-123456789")
         me = (await c.get("/api/me", headers=H(tok))).json(); assert me["usage"]["platform_msgs"] == 3 and me["usage"]["total_msgs"] == 4
+
+        # own key: key validation, any model from the provider, xAI Grok
+        assert "groq" in (await c.post("/api/keys", json={"provider": "openai", "label": "x", "key": "gsk_abcdefgh1234"}, headers=H(tok))).json()["detail"]
+        assert "rejected" in (await c.post("/api/keys", json={"provider": "openai", "label": "x", "key": "bad-key-000000"}, headers=H(tok))).json()["detail"]
+        assert (await c.post("/api/keys", json={"provider": "xai", "label": "Grok", "key": "xai-testkey12345"}, headers=H(tok))).status_code == 200
+        ml = (await c.get(f"/api/keys/{kid}/models", headers=H(tok))).json(); assert "my-model-x" in ml["models"] and ml["provider"] == "openai"
+        assert (await c.patch(f"/api/bots/{bid}", json={"custom_model": "my-model-x"}, headers=H(tok))).status_code == 200
+        await chat("custom model?", "sess-cm-0001"); assert FAKE["call"] == ("openai", "my-model-x", "sk-live-123456789")
+        xid = next(k["id"] for k in (await c.get("/api/keys", headers=H(tok))).json() if k["provider"] == "xai")
+        assert (await c.patch(f"/api/bots/{bid}", json={"api_key_id": xid, "custom_model": "grok-test-1"}, headers=H(tok))).status_code == 200
+        await chat("grok?", "sess-cm-0002"); assert FAKE["call"] == ("xai", "grok-test-1", "xai-testkey12345")
+        assert (await c.patch(f"/api/bots/{bid}", json={"api_key_id": kid, "custom_model": None}, headers=H(tok))).status_code == 200
+        assert (await c.patch(f"/api/bots/{bid}", json={"api_key_id": None, "custom_model": "needs-key"}, headers=H(tok))).status_code == 400
+        await deps.db.pool.execute("UPDATE usage SET total_msgs = 4")
 
         # COST CAPS: total monthly cap applies even on the client's own key
         await deps.db.pool.execute("UPDATE usage SET total_msgs = 1500")

@@ -1,7 +1,8 @@
 /* Dashboard SPA. No framework, no build step. All dynamic text goes through E() before touching innerHTML. */
 const E = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const app = document.getElementById('app');
-const PROVIDERS = ['anthropic', 'openai', 'groq', 'openrouter'];
+const PROVIDERS = ['anthropic', 'openai', 'groq', 'xai', 'openrouter'];
+const PNAME = { anthropic: 'Anthropic (Claude)', openai: 'OpenAI (GPT)', groq: 'Groq (Llama, fast)', xai: 'xAI (Grok)', openrouter: 'OpenRouter (many models)' };
 let TOKEN = localStorage.getItem('tok'), ME = null, CLIENTS = {};
 
 const fmt = d => d ? new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
@@ -145,6 +146,9 @@ async function settingsTab(bot) {
     <div><label for="p">Position</label><select id="p" name="position"><option value="right" ${bot.position === 'right' ? 'selected' : ''}>Bottom right</option><option value="left" ${bot.position === 'left' ? 'selected' : ''}>Bottom left</option></select></div></div>
     <div class="row"><div><label for="m">Model</label><select id="m" name="model_id">${modelOpts}</select></div>
     <div><label for="k">API key</label><select id="k" name="api_key_id">${keyOpts}</select></div></div>
+    <label for="cm">Use any model from your own key (optional)</label>
+    <div class="row"><div><input id="cm" name="custom_model" list="mlist" value="${E(bot.custom_model || '')}" placeholder="Click “Load my models”, then pick or type a model ID" autocomplete="off"><datalist id="mlist"></datalist></div><button type="button" class="btn ghost" data-act="loadmodels">Load my models</button></div>
+    <p class="hint">Needs an API key selected above. When filled in, it replaces the Model choice, so you can use any model your provider offers. Leave empty to use the Model list.</p>
     <p class="hint">Using your own key means unlimited messages billed by your AI provider. The included key counts against ${num(L.platform_msgs)} messages a month. <a href="#/keys">Manage keys</a></p>
     <label for="d">Allowed websites (one per line)</label><textarea id="d" name="allowed_domains" placeholder="example.com">${E((bot.allowed_domains || []).join('\n'))}</textarea>
     <p class="hint">${bot.allowed_domains.length ? 'The bot only loads on these sites and their subdomains.' : '<b>Empty means any website can use this bot.</b> Add your domain so nobody can copy your snippet and use up your messages.'}</p>
@@ -157,12 +161,19 @@ forms.savebot = async f => {
   const v = fd(f), cb = n => f.elements[n].checked;
   await api('/bots/' + f.dataset.bot, { method: 'PATCH', json: {
     name: v.name, welcome: v.welcome, system_prompt: v.system_prompt, color: v.color, position: v.position,
-    model_id: v.model_id ? Number(v.model_id) : null, api_key_id: v.api_key_id ? Number(v.api_key_id) : null,
+    model_id: v.model_id ? Number(v.model_id) : null, api_key_id: v.api_key_id ? Number(v.api_key_id) : null, custom_model: v.custom_model.trim() || null,
     allowed_domains: v.allowed_domains.split('\n'), active: cb('active'),
     ...(f.elements.web_search.disabled ? {} : { web_search: cb('web_search') }),
     ...(f.elements.agency_promo.disabled ? {} : { agency_promo: cb('agency_promo') }),
   } });
   toast('Saved'); route();
+};
+actions.loadmodels = async () => {
+  const kid = document.getElementById('k').value;
+  if (!kid) throw new Error('Select one of your API keys first (the API key box above), then try again.');
+  const r = await api(`/keys/${kid}/models`);
+  document.getElementById('mlist').innerHTML = r.models.map(m => `<option value="${E(m)}"></option>`).join('');
+  toast(`${r.models.length} models loaded. Click the box and pick one.`);
 };
 actions.delbot = async el => {
   if (!confirm('Delete this bot, its knowledge and all its conversations? This cannot be undone.')) return;
@@ -212,7 +223,7 @@ async function keysView() {
   const keys = await api('/keys');
   return `<h1>API keys</h1><p class="sub">Bring your own key from Anthropic, OpenAI, Groq or OpenRouter to run your bots on your own account with no message cap. Keys are encrypted and never shown again.</p>
   <form class="card" data-form="addkey" data-busy="Saving…"><div class="row">
-    <div><label for="kp">Provider</label><select id="kp" name="provider">${PROVIDERS.map(p => `<option>${p}</option>`).join('')}</select></div>
+    <div><label for="kp">Provider</label><select id="kp" name="provider">${PROVIDERS.map(p => `<option value="${p}">${PNAME[p]}</option>`).join('')}</select></div>
     <div><label for="kl">Label</label><input id="kl" name="label" maxlength="60" placeholder="Company key" required></div>
     <div><label for="kk">Key</label><input id="kk" name="key" type="password" autocomplete="off" required></div><button class="btn">Add key</button></div></form>
   ${keys.length ? `<div class="wrap"><table><tr><th>Label</th><th>Provider</th><th>Key</th><th>Added</th><th></th></tr>${keys.map(k =>
@@ -298,7 +309,7 @@ async function adminModels() {
   return `<h1>Models</h1><p class="sub">Disabled models disappear from client dashboards, and bots using them fall back to another enabled model.</p>
   <form class="card" data-form="addmodel" data-busy="Adding…"><h2>Add a model</h2><div class="row">
     <div><label for="ml">Label</label><input id="ml" name="label" placeholder="Claude Sonnet" required></div>
-    <div><label for="mp">Provider</label><select id="mp" name="provider">${PROVIDERS.map(p => `<option>${p}</option>`).join('')}</select></div>
+    <div><label for="mp">Provider</label><select id="mp" name="provider">${PROVIDERS.map(p => `<option value="${p}">${PNAME[p]}</option>`).join('')}</select></div>
     <div><label for="mi">Model ID</label><input id="mi" name="model_id" placeholder="exact id from the provider docs" required></div>
     <div><label for="mr">Tier</label><select id="mr" name="premium_only"><option value="false">All plans</option><option value="true">Premium only</option></select></div><button class="btn">Add</button></div></form>
   <div class="wrap"><table><tr><th>Model</th><th>Provider</th><th>ID</th><th>Tier</th><th>Status</th><th></th></tr>${ms.map(m =>

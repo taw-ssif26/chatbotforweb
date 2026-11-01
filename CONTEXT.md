@@ -27,6 +27,7 @@
 - Marketing: owner profile in Settings; mode 'active' = one soft mention per chat after turn 2 (promo_shown flag), 'ask' = only when asked; Premium can turn off per bot.
 - Migrations: app/migrations/*.sql applied once each at startup (advisory lock).
 - Widget failures are explicit: config endpoint returns the reason (403/404 detail), widget console.warn('[AIChat] ...'), /demo prints it, Install tab has health checklist + site checker.
+- Providers: anthropic, openai, groq, xai (Grok), openrouter. Client own-key bots can use any model ID (bots.custom_model, migration 002); keys are verified with the provider on save and model lists are loaded from the key.
 - Single uvicorn worker: rate limiter is in-memory. Move to Redis before scaling out.
 - No Alembic yet: schema.sql is idempotent create-only. Add migrations before changing existing tables in production.
 ## Next Step: Deploy to Render + Neon (see README), set env vars, log in, fill Settings -> marketing profile (site + works), add platform keys, create a test client, embed on your portfolio.

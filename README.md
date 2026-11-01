@@ -27,6 +27,12 @@ Without Docker: run Postgres with the pgvector extension, set `DATABASE_URL`, th
 ```
 Shadow DOM isolates styles. Test any bot at `/demo?bot=BOT_KEY`.
 
+## Using your own AI key (Groq, xAI Grok, OpenAI, Anthropic, OpenRouter)
+1. **API keys** page: pick the provider that matches the key (`gsk_…` = Groq, `xai-…` = xAI Grok, `sk-ant-…` = Anthropic, `sk-or-…` = OpenRouter, other `sk-…` = OpenAI). The key is checked with the provider before it is saved, and a wrong provider choice is caught for you.
+2. Bot **Settings**: select that key in **API key**, click **Load my models**, then pick any model in **Use any model from your own key**. Save.
+3. The Install tab's checklist confirms which model answers. Messages on your own key are not limited by your plan.
+The Model dropdown only lists models the owner enabled (Owner → Models); your own key is not limited to that list.
+
 ## "I can't see the chat bubble": fix it in 2 minutes
 1. Open the bot, **Install** tab. The **Is everything ready?** list shows exactly what is wrong (subscription, paused bot, no usable model or key, allowed websites).
 2. Type your website address into **Check my website**. It tells you whether the snippet is in the page and whether the site is allowed.

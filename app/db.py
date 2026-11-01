@@ -5,6 +5,7 @@ import asyncpg
 from pgvector.asyncpg import register_vector
 
 from . import security
+from .llm import PROVIDERS
 from .config import settings
 
 pool: asyncpg.Pool | None = None
@@ -93,6 +94,6 @@ async def platform_key(provider: str) -> str:
 
 
 async def platform_providers() -> set[str]:
-    out = {p for p in ("anthropic", "openai", "groq", "openrouter") if getattr(settings, f"{p}_api_key", "")}
+    out = {p for p in PROVIDERS if getattr(settings, f"{p}_api_key", "")}
     rows = await pool.fetch("SELECT key FROM settings WHERE key LIKE 'pk:%'")
     return out | {r["key"][3:] for r in rows}
