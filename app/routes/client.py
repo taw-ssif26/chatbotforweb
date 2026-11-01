@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from .. import db, llm, rag, security
 from ..deps import client_ip, current_user, failures, forget, limited, live, record, require_live
 from ..plans import plan_for
+from .public import pick_model
 
 router = APIRouter(prefix="/api")
 log = logging.getLogger("client")
@@ -137,7 +138,10 @@ async def create_bot(body: BotIn, u: dict = Depends(require_live)):
     plan = plan_for(u["role"], u["plan"])
     if await db.pool.fetchval("SELECT count(*) FROM bots WHERE user_id=$1", u["id"]) >= plan["bots"]:
         raise HTTPException(403, f"Your plan allows {plan['bots']} bot(s)")
-    mid = await db.pool.fetchval("SELECT id FROM models WHERE enabled AND NOT premium_only ORDER BY id LIMIT 1")
+    have = await db.platform_providers()
+    cands = await db.pool.fetch("SELECT id, provider FROM models WHERE enabled AND NOT premium_only ORDER BY id")
+    # default to a model that can actually answer today (has a platform key); otherwise the first standard model
+    mid = next((m["id"] for m in cands if m["provider"] in have), cands[0]["id"] if cands else None)
     name = body.name.strip()
     bid = await db.pool.fetchval(
         "INSERT INTO bots(user_id, public_key, name, system_prompt, model_id) VALUES($1,$2,$3,$4,$5) RETURNING id",
@@ -336,3 +340,65 @@ async def delete_conversation(bid: int, cid: int, u: dict = Depends(current_user
     await own_bot(bid, u)
     await db.pool.execute("DELETE FROM conversations WHERE id=$1 AND bot_id=$2", cid, bid)
     return {"ok": True}
+
+
+# ---------------- install diagnostics ----------------
+def chk(status: str, label: str, fix: str = "") -> dict:
+    return {"status": status, "label": label, "fix": fix}
+
+
+@router.get("/bots/{bid}/health")
+async def bot_health(bid: int, u: dict = Depends(current_user)):
+    bot = await own_bot(bid, u)
+    plan = plan_for(u["role"], u["plan"])
+    out = []
+    is_live = live(u["role"], u["active"], u["expires_at"])
+    out.append(chk("ok", "Subscription is active") if is_live else chk("fail", "Subscription is expired or inactive", "The chat widget is hidden until your provider renews your access."))
+    out.append(chk("ok", "Bot is active") if bot["active"] else chk("fail", "Bot is paused", "Open Settings and turn on 'Bot is active'."))
+    model, _key, platform = await pick_model(bot, plan)
+    if model:
+        out.append(chk("ok", f"Answers with {model['label']} using " + ("the included key" if platform else "your own key")))
+    else:
+        out.append(chk("fail", "No model can answer yet", "Add your API key under API keys and select it in Settings, or ask the owner to enable a model and add a platform key."))
+    n = await db.pool.fetchval("SELECT count(*) FROM sources WHERE bot_id=$1", bid)
+    out.append(chk("ok", f"{n} knowledge source(s) added") if n else chk("warn", "No knowledge added yet", "The bot will only use its instructions. Add text, a page or a file under Knowledge."))
+    out.append(chk("ok", "Allowed websites: " + ", ".join(bot["allowed_domains"])) if bot["allowed_domains"]
+               else chk("warn", "Allowed websites is empty", "Any site can use this bot. Add your own domain in Settings."))
+    return out
+
+
+class SiteIn(BaseModel):
+    url: str = Field(max_length=2000)
+
+
+@router.post("/bots/{bid}/check-site")
+async def check_site(bid: int, body: SiteIn, u: dict = Depends(current_user)):
+    bot = await own_bot(bid, u)
+    if limited(f"fetch:{u['id']}", 10):
+        raise HTTPException(429, "Slow down: 10 checks per minute")
+    url = body.url.strip()
+    if "://" not in url:
+        url = "https://" + url
+    host = (urlparse(url).hostname or "").removeprefix("www.")
+    out = []
+    doms = bot["allowed_domains"]
+    if not doms:
+        out.append(chk("ok", f"{host} may load the bot (no restriction set)"))
+    elif any(host == d or host.endswith("." + d) for d in doms):
+        out.append(chk("ok", f"{host} is in Allowed websites"))
+    else:
+        out.append(chk("fail", f"{host} is NOT in Allowed websites", f"Add {host} under Settings → Allowed websites, then reload your site."))
+    try:
+        _, html = await rag.fetch_html(url)
+    except ValueError as e:
+        return out + [chk("fail", "Could not open that page", str(e))]
+    except Exception:
+        return out + [chk("fail", "Could not open that page", "Check the address and that the site is public.")]
+    if bot["public_key"] in html and "widget.js" in html:
+        out.append(chk("ok", "The install snippet is in the page source"))
+    elif "widget.js" in html:
+        out.append(chk("fail", "A widget snippet is on the page, but for a different bot key", "Copy the snippet again from this Install tab."))
+    else:
+        out.append(chk("fail", "The snippet was not found in the page source",
+                       "Paste it just before </body> and publish. Site builders that inject scripts after load (tag managers) can't be seen by this check; open the page in your browser and look for the chat bubble."))
+    return out

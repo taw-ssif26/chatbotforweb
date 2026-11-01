@@ -123,8 +123,8 @@ def pdf_to_text(data: bytes) -> str:
     return clean("\n\n".join((pg.extract_text() or "") for pg in PdfReader(io.BytesIO(data)).pages))
 
 
-async def fetch_url(url: str) -> tuple[str, str]:
-    """Returns (title, text). <=4 redirects, each re-validated and IP-pinned; body capped at 2 MB."""
+async def _get(url: str) -> tuple[str, str, str, bytes]:
+    """GET with <=4 redirects, each re-validated and IP-pinned; body capped at 2 MB. Returns (final_url, content_type, encoding, body)."""
     async with httpx.AsyncClient(timeout=15, follow_redirects=False, headers={"User-Agent": "ChatbotIngest/1.0"}) as c:
         for _ in range(5):
             p, port, ip = await _resolve_public(url)
@@ -142,11 +142,21 @@ async def fetch_url(url: str) -> tuple[str, str]:
                     body += part
                     if len(body) > 2_000_000:
                         break
-                ctype = r.headers.get("content-type", "")
-                if "pdf" in ctype:
-                    return url, await asyncio.to_thread(pdf_to_text, body)
-                if "html" in ctype:
-                    title, text = await asyncio.to_thread(html_to_text, body.decode(r.encoding or "utf-8", "replace"))
-                    return title or url, text
-                return url, clean(body.decode("utf-8", "replace"))
+                return url, r.headers.get("content-type", ""), r.encoding or "utf-8", body
     raise ValueError("Too many redirects")
+
+
+async def fetch_url(url: str) -> tuple[str, str]:
+    """Returns (title, text) of a page, PDF or text file."""
+    url, ctype, enc, body = await _get(url)
+    if "pdf" in ctype:
+        return url, await asyncio.to_thread(pdf_to_text, body)
+    if "html" in ctype:
+        title, text = await asyncio.to_thread(html_to_text, body.decode(enc, "replace"))
+        return title or url, text
+    return url, clean(body.decode("utf-8", "replace"))
+
+
+async def fetch_html(url: str) -> tuple[str, str]:
+    url, _, enc, body = await _get(url)
+    return url, body.decode(enc, "replace")

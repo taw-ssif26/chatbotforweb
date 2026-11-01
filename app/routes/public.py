@@ -28,8 +28,13 @@ BASE_HOST = urlparse(settings.public_base_url).hostname
 
 
 def origin_ok(bot, request: Request) -> bool:
-    host = urlparse(request.headers.get("origin") or request.headers.get("referer") or "").hostname or ""
-    if host and host == BASE_HOST:  # dashboard test chat
+    h = request.headers
+    host = urlparse(h.get("origin") or h.get("referer") or "").hostname or ""
+    if not host:
+        # Same-origin GETs carry neither Origin nor Referer; browsers label them with Sec-Fetch-Site.
+        if h.get("sec-fetch-site") == "same-origin":
+            return True
+    elif host in (BASE_HOST, urlparse("//" + (h.get("host") or "")).hostname):  # the dashboard's own test page
         return True
     doms = bot["allowed_domains"]
     return not doms or any(host == d or host.endswith("." + d) for d in doms)
@@ -39,14 +44,28 @@ def bot_available(bot) -> bool:
     return bool(bot and bot["active"] and live(bot["role"], bot["u_active"], bot["expires_at"]))
 
 
+def why_unavailable(bot, request: Request) -> tuple[int, str] | None:
+    """Specific reason the widget can't show. Returned to the widget (console only), never rendered to visitors."""
+    if not bot:
+        return 404, "No chatbot exists with this key. Re-copy the snippet from the Install tab."
+    if not bot["active"]:
+        return 403, "This bot is paused. Turn on 'Bot is active' in its Settings."
+    if not live(bot["role"], bot["u_active"], bot["expires_at"]):
+        return 403, "The subscription for this bot is inactive or expired."
+    if not origin_ok(bot, request):
+        host = urlparse(request.headers.get("origin") or request.headers.get("referer") or "").hostname or "this site"
+        return 403, f"{host} is not in this bot's Allowed websites. Add it under the bot's Settings."
+    return None
+
+
 @router.get("/config/{key}")
 async def config(key: str, request: Request, response: Response):
     bot = await db.pool.fetchrow(BOT_SQL, key)
-    if not bot_available(bot) or not origin_ok(bot, request):
-        raise HTTPException(404, "Not found")
+    if problem := why_unavailable(bot, request):
+        raise HTTPException(*problem)
     plan = plan_for(bot["role"], bot["plan"])
     ag = await db.agency()
-    response.headers["Cache-Control"] = "public, max-age=60"
+    response.headers["Cache-Control"] = "public, max-age=30"
     response.headers["Vary"] = "Origin"
     return {
         "name": bot["name"], "welcome": bot["welcome"], "color": bot["color"], "position": bot["position"],

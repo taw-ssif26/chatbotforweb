@@ -20,7 +20,22 @@
     .replace(/(^|\n)[-*] /g, '$1• ').replace(/\n/g, '<br>');
   const ink = hex => { const n = parseInt(hex.slice(1), 16); return (0.299 * (n >> 16) + 0.587 * (n >> 8 & 255) + 0.114 * (n & 255)) > 150 ? '#111' : '#fff'; };
 
-  fetch(BASE + '/api/public/config/' + encodeURIComponent(BOT)).then(r => r.ok ? r.json() : null).then(cfg => cfg && init(cfg)).catch(() => {});
+  const warn = m => { try { console.warn('[AIChat] ' + m); } catch (e) {} };
+  // A sleeping free-tier server answers 502/503 or times out on the first hit: retry a few times before giving up.
+  (function load(n) {
+    const retry = () => { if (n < 5) setTimeout(() => load(n + 1), 3000 * n); };
+    fetch(BASE + '/api/public/config/' + encodeURIComponent(BOT))
+      .then(async r => {
+        if (r.ok) return init(await r.json());
+        const j = await r.json().catch(() => ({}));
+        warn('Chat bubble not shown (' + r.status + '): ' + (typeof j.detail === 'string' ? j.detail : 'server error'));
+        if (r.status >= 500) retry();
+      })
+      .catch(e => {
+        warn('Could not reach ' + BASE + ' (' + (e && e.message) + ')' + (location.protocol === 'https:' && BASE.startsWith('http:') ? ': this page is https but the chatbot server is http, so the browser blocks it. Use an https address.' : ''));
+        retry();
+      });
+  })(1);
 
   function init(cfg) {
     const host = document.createElement('div');
@@ -28,8 +43,9 @@
     const root = host.attachShadow({ mode: 'open' });
     const side = cfg.position === 'left' ? 'left' : 'right';
     root.innerHTML = `<style>
-      :host{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-      *{box-sizing:border-box}
+      :host{font-size:15px;line-height:1.45}
+      .panel{font-size:15px;line-height:1.45}
+      *{box-sizing:border-box;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
       .fab{position:fixed;bottom:20px;${side}:20px;width:58px;height:58px;border:0;border-radius:50%;background:${cfg.color};color:${ink(cfg.color)};cursor:pointer;box-shadow:0 6px 24px rgba(0,0,0,.25);display:grid;place-items:center}
       .fab:focus-visible,button:focus-visible,textarea:focus-visible{outline:3px solid #8aa4ff;outline-offset:2px}
       .panel{position:fixed;bottom:90px;${side}:20px;width:380px;height:min(600px,calc(100vh - 120px));background:#fff;color:#16202e;border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden}

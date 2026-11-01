@@ -48,6 +48,7 @@ async def main():
         models = (await c.get("/api/models", headers=H(tok))).json()
         groq = next(m for m in models if m["provider"] == "groq")
         bid = (await c.post("/api/bots", json={"name": "Acme"}, headers=H(tok))).json()["id"]
+        assert (await c.get(f"/api/bots/{bid}", headers=H(tok))).json()["model_id"] == groq["id"]  # default = a model that has a usable key
         assert (await c.post("/api/bots", json={"name": "Two"}, headers=H(tok))).status_code == 403  # starter: 1 bot
         assert (await c.patch(f"/api/bots/{bid}", json={"web_search": True}, headers=H(tok))).status_code == 403
         assert (await c.patch(f"/api/bots/{bid}", json={"agency_promo": False}, headers=H(tok))).status_code == 403
@@ -62,9 +63,20 @@ async def main():
         cfgu = f"/api/public/config/{key}"
         assert (await c.get(cfgu, headers={"Origin": "https://acme.com"})).status_code == 200
         assert (await c.get(cfgu, headers={"Origin": "https://shop.acme.com"})).status_code == 200
-        assert (await c.get(cfgu, headers={"Origin": "https://evil.com"})).status_code == 404
-        assert (await c.get(cfgu)).status_code == 404  # allowlist set + no Origin (curl) -> refused
+        r = await c.get(cfgu, headers={"Origin": "https://evil.com"}); assert r.status_code == 403 and "evil.com" in r.json()["detail"] and "Allowed websites" in r.json()["detail"]
+        assert (await c.get(cfgu)).status_code == 403  # allowlist set + no Origin/Referer (curl) -> refused
+        assert (await c.get(cfgu, headers={"Sec-Fetch-Site": "same-origin"})).status_code == 200   # the dashboard's own /demo page (no Origin header on same-origin GET)
+        assert (await c.get(cfgu, headers={"Origin": "http://localhost:8000"})).status_code == 200  # same host as the server
+        assert (await c.get("/api/public/config/bot_nope", headers={"Origin": "https://acme.com"})).status_code == 404
         cfg = (await c.get(cfgu, headers={"Origin": "https://acme.com"})).json(); assert cfg["brand"]["name"] == "Tawsif (TSMart)"
+
+        # install diagnostics
+        hl = (await c.get(f"/api/bots/{bid}/health", headers=H(tok))).json()
+        assert [x["status"] for x in hl][:3] == ["ok", "ok", "ok"], hl
+        sc = (await c.post(f"/api/bots/{bid}/check-site", json={"url": "https://evil.com"}, headers=H(tok))).json()
+        assert sc[0]["status"] == "fail" and "evil.com" in sc[0]["label"], sc
+        sc = (await c.post(f"/api/bots/{bid}/check-site", json={"url": "http://127.0.0.1/"}, headers=H(tok))).json()
+        assert any(x["label"].startswith("Could not open") for x in sc), sc
 
         # chat: retrieval + platform key + marketing block (turn 1: no promo yet)
         hdr = {"Origin": "https://acme.com"}

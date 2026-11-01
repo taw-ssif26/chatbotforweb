@@ -1,0 +1,6 @@
+{
+  "name": "chatbot-saas-tests",
+  "private": true,
+  "description": "Browser-level tests. Run: cd tests && npm install, then see README.",
+  "dependencies": { "jsdom": "*", "puppeteer-core": "*", "@sparticuz/chromium": "*" }
+}

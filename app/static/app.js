@@ -106,7 +106,7 @@ async function botView(id, tab) {
   if (tab === 'knowledge') inner = await knowledgeTab(bot);
   else if (tab === 'settings') inner = await settingsTab(bot);
   else if (tab === 'chats') inner = await chatsTab(bot);
-  else inner = installTab(bot);
+  else inner = await installTab(bot);
   return `<p><a href="#/bots">← All bots</a></p><h1>${E(bot.name)}</h1>
   <div class="tabs">${tabs.map(([k, l]) => `<a href="#/bot/${bot.id}/${k}" class="${tab === k ? 'on' : ''}">${l}</a>`).join('')}</div>${inner}`;
 }
@@ -186,15 +186,25 @@ actions.openconv = async el => {
   box.scrollIntoView({ behavior: 'smooth' });
 };
 
-function installTab(bot) {
+const checkList = list => `<ul class="checks">${list.map(c => `<li class="chk ${E(c.status)}"><b>${c.status === 'ok' ? '✓' : c.status === 'warn' ? '!' : '✕'}</b><div>${E(c.label)}${c.fix ? `<div class="hint">${E(c.fix)}</div>` : ''}</div></li>`).join('')}</ul>`;
+async function installTab(bot) {
+  const health = await api(`/bots/${bot.id}/health`);
   const snip = `<script src="${location.origin}/widget.js" data-bot="${bot.public_key}" async></script>`;
-  return `<div class="card"><h2>Add the chatbot to your website</h2>
+  return `<div class="card"><h2>Is everything ready?</h2>${checkList(health)}</div>
+  <div class="card"><h2>Add the chatbot to your website</h2>
     <p>Paste this line just before the closing <code>&lt;/body&gt;</code> tag on every page where the chat should appear. It works on WordPress, Shopify, Wix, Webflow, plain HTML and any other site that lets you add a script.</p>
     <code class="code" id="snip">${E(snip)}</code>
     <div class="row"><button class="btn" data-act="copy">Copy snippet</button><a class="btn ghost" href="/demo?bot=${encodeURIComponent(bot.public_key)}" target="_blank" rel="noopener">Open test page</a></div>
-    ${bot.allowed_domains.length ? '' : '<p class="err">Before going live, add your website under Settings → Allowed websites.</p>'}
-    <p class="hint">Changes to name, colour, instructions and knowledge apply immediately. You never need to re-paste the snippet. The widget links to a privacy notice; add a line to your own privacy policy that chats are processed by AI providers.</p></div>`;
+    <p class="hint">Changes to name, colour, instructions and knowledge apply immediately. You never need to re-paste the snippet. The widget links to a privacy notice; add a line to your own privacy policy that chats are processed by AI providers.</p></div>
+  <form class="card" data-form="checksite" data-busy="Checking…" data-bot="${bot.id}"><h2>Can't see the chat bubble on your site?</h2>
+    <p class="sub">Enter your page address and we'll check the snippet and the website permission.</p>
+    <div class="row"><div><label for="cs">Page address</label><input id="cs" name="url" placeholder="https://yourwebsite.com" required></div><button class="btn">Check my website</button></div>
+    <div id="siteresult"></div></form>`;
 }
+forms.checksite = async f => {
+  const r = await api(`/bots/${f.dataset.bot}/check-site`, { json: fd(f) });
+  document.getElementById('siteresult').innerHTML = checkList(r);
+};
 actions.copy = async () => { await navigator.clipboard.writeText(document.getElementById('snip').textContent); toast('Copied'); };
 
 /* ---------- API keys ---------- */

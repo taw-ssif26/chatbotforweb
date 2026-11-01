@@ -27,6 +27,14 @@ Without Docker: run Postgres with the pgvector extension, set `DATABASE_URL`, th
 ```
 Shadow DOM isolates styles. Test any bot at `/demo?bot=BOT_KEY`.
 
+## "I can't see the chat bubble": fix it in 2 minutes
+1. Open the bot, **Install** tab. The **Is everything ready?** list shows exactly what is wrong (subscription, paused bot, no usable model or key, allowed websites).
+2. Type your website address into **Check my website**. It tells you whether the snippet is in the page and whether the site is allowed.
+3. Still nothing? Open your page, press F12, **Console**. The widget prints one line starting with `[AIChat]` that gives the exact reason.
+4. Open `/demo?bot=YOUR_KEY` on your server: it prints the reason on screen.
+
+Common causes: your site is not listed under **Allowed websites** (add `yourdomain.com`; `www.` and subdomains are covered); the snippet sits in a page builder that strips `<script>` tags; your site is `https` but the chatbot server is `http`; the free server was asleep (the widget retries for about a minute); you changed a setting less than 30 seconds ago (browsers cache the widget config for 30 s).
+
 ## What protects your bill and your clients
 - **Monthly caps per client** (`app/plans.py`): total visitor messages (each costs you a Voyage embedding, even on the client's own key), messages on your platform LLM keys, and web searches. Enforced atomically in one SQL statement.
 - Repeated questions reuse a cached embedding; web search runs only when the knowledge match is weak.
@@ -40,9 +48,11 @@ Shadow DOM isolates styles. Test any bot at `/demo?bot=BOT_KEY`.
 ```bash
 pip install -r requirements-dev.txt && pytest tests/test_unit.py
 python -m tests.e2e    # needs an EMPTY pgvector Postgres from .env; fakes Voyage, Tavily and the LLM
-# real widget + dashboard JavaScript in a simulated browser:
-npm i jsdom && python -m tests.serve_fake &    # fake-backed server on :8099
-NODE_PATH=$PWD/node_modules node tests/ui_test.cjs
+# widget + dashboard in a simulated browser AND real headless Chrome (installed via npm, no system Chrome needed):
+(cd tests && npm install)
+python -m tests.serve_fake &                   # fake-backed server on :8099, empty pgvector DB
+NODE_PATH=$PWD/tests/node_modules node tests/ui_test.cjs        # jsdom, 20 checks
+NODE_PATH=$PWD/tests/node_modules node tests/browser_test.cjs   # real Chrome, screenshots in /tmp/shots
 ```
 
 ## Known limits (deliberate for MVP)
@@ -52,4 +62,3 @@ NODE_PATH=$PWD/node_modules node tests/ui_test.cjs
 - No automated billing: by design, you collect payment manually.
 - `/terms` and `/privacy` are plain starting texts. Have them reviewed for your jurisdiction before charging clients.
 - Never run against real Voyage/Tavily/LLM providers in CI: do one manual smoke test after deploy.
-# chatbotforweb

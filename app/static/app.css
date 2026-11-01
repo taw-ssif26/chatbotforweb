@@ -70,3 +70,11 @@ dialog::backdrop{background:rgba(16,26,48,.5)}
 }
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
 a.btn{text-decoration:none;display:inline-block;text-align:center}
+
+.checks{list-style:none;margin:0;padding:0}
+.chk{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line)}
+.chk:last-child{border-bottom:0}
+.chk>b{flex:0 0 22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:13px;color:#fff;background:var(--mute)}
+.chk.ok>b{background:var(--ok)}.chk.warn>b{background:var(--warn)}.chk.fail>b{background:var(--bad)}
+.chk .hint{margin:2px 0 0}
+.card>h2:first-child,form.card>h2:first-child{margin-top:0}

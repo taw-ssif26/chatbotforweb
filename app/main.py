@@ -66,7 +66,7 @@ class SecurityMiddleware:
             if msg["type"] == "http.response.start":
                 h = msg.setdefault("headers", [])
                 have = {k.lower() for k, _ in h}
-                extra = [(b"x-content-type-options", b"nosniff"), (b"referrer-policy", b"no-referrer")]
+                extra = [(b"x-content-type-options", b"nosniff"), (b"referrer-policy", b"strict-origin-when-cross-origin")]
                 if https:
                     extra.append((b"strict-transport-security", b"max-age=31536000"))
                 if path.startswith("/api/") and not path.startswith("/api/public/"):
@@ -94,7 +94,7 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 DASH_HEADERS = {
     "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-    "Cache-Control": "no-cache",
+    "Cache-Control": "no-cache", "Referrer-Policy": "no-referrer",
 }
 
 

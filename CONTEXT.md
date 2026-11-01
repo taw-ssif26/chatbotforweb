@@ -5,7 +5,7 @@
   knowledge (text/URL/file -> chunks -> pgvector), RAG chat with SSE streaming, web-search fallback (premium), domain allowlist, rate limits,
   monthly quota on platform keys, conversation log, owner marketing profile injected into every bot (mention-only-when-asked).
   NOT yet verified with real keys: Voyage, Tavily, Anthropic/OpenAI/Groq streaming. Test these first on deploy.
-## Active Problem: none. Hardened + browser-simulated tests pass (e2e, unit, SSRF-pin, 20 jsdom UI checks). Next: real-key smoke test + free deploy (Render + Neon).
+## Active Problem: none. Widget-invisible bug fixed (same-origin GET had no Origin + Referrer-Policy:no-referrer; failures were silent). Real-Chrome tests added. Hardened + browser-simulated tests pass (e2e, unit, SSRF-pin, 20 jsdom UI checks). Next: real-key smoke test + free deploy (Render + Neon).
 ## Key Files:
 - app/main.py - app wiring, static routes (/, /widget.js, /demo)
 - app/routes/public.py - widget config + streaming chat (RAG, web fallback, model/key resolution, quota)
@@ -26,6 +26,7 @@
 - Cost caps: plans.py total_msgs/platform_msgs/web_searches enforced in one atomic UPSERT in routes/public.py.
 - Marketing: owner profile in Settings; mode 'active' = one soft mention per chat after turn 2 (promo_shown flag), 'ask' = only when asked; Premium can turn off per bot.
 - Migrations: app/migrations/*.sql applied once each at startup (advisory lock).
+- Widget failures are explicit: config endpoint returns the reason (403/404 detail), widget console.warn('[AIChat] ...'), /demo prints it, Install tab has health checklist + site checker.
 - Single uvicorn worker: rate limiter is in-memory. Move to Redis before scaling out.
 - No Alembic yet: schema.sql is idempotent create-only. Add migrations before changing existing tables in production.
 ## Next Step: Deploy to Render + Neon (see README), set env vars, log in, fill Settings -> marketing profile (site + works), add platform keys, create a test client, embed on your portfolio.
