@@ -60,6 +60,9 @@ Common causes: your site is not listed under **Allowed websites** (add `yourdoma
 - Chats auto-delete after `RETENTION_DAYS` (default 90). `/privacy` and `/terms` pages are served; the widget links to the privacy page.
 - Ops: optional Sentry (`SENTRY_DSN`), weekly DB backup workflow (`.github/workflows/backup.yml`, needs a `DATABASE_URL` repo secret), SQL migrations in `app/migrations/`.
 
+## Keeping the bot safe
+Every request carries a strict safety prompt (no instruction or key leaks, no dumping the knowledge base, privacy rules, no invented facts, refuse harmful requests). On top of the prompt, code refuses obvious extraction attempts without calling the model, stops any reply that echoes the hidden marker, and cuts off long word-for-word copying (`MAX_VERBATIM_CHARS`, default 600). Blocked attempts appear in **Conversations**. Details and limits are in SECURITY.md. Tell clients not to upload secrets: anything in the knowledge base can be asked about.
+
 ## Quality gates
 `ruff check app tests`, `bandit -r app -ll` and `pip-audit -r requirements.txt` are clean and run in CI. See SECURITY.md for the threat model, known limits and the owner checklist. **Back up `FERNET_KEY`**: without it saved API keys cannot be decrypted.
 

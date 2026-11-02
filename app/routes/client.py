@@ -256,7 +256,7 @@ async def patch_bot(bid: int, body: BotPatch, u: dict = Depends(require_live)):
     cols = list(d)
     assert set(cols) <= PATCHABLE_BOT_FIELDS  # column names are interpolated below: never user text
     sets = ", ".join(f"{c}=${i + 2}" for i, c in enumerate(cols))
-    await db.pool.execute(f"UPDATE bots SET {sets} WHERE id=$1", bid, *[d[c] for c in cols])  # noqa: S608  # nosec B608 - column names come from a fixed allowlist
+    await db.pool.execute(f"UPDATE bots SET {sets} WHERE id=$1", bid, *[d[c] for c in cols])  # noqa: S608  # nosec B608
     return {"ok": True}
 
 

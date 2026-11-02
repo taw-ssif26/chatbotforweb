@@ -31,6 +31,7 @@
 - LLM failures: visitors see a generic line; the owner sees llm.explain() text via bots.last_error (Install checklist) and the 'Test the AI model' button. OpenAI max_tokens->max_completion_tokens retry built in.
 - Resilience: db.RetryPool retries once on dead connections; global exception handler returns 'Server error (reference X)' and records it for Owner -> Status (/api/admin/status); dashboard api() retries GETs on 502/503/504/network errors.
 - Security audit done (see SECURITY.md): bounded LRU limiter stores (chat vs auth), MultiFernet key rotation, streaming size cap, prompt-block defanging, runtime plan enforcement for premium-only switches, null-safe PATCH, patched deps (cryptography 50.0.2, PyJWT 2.15.1, pypdf 6.21.4). DB pool has statement_cache_size=0 (fixes InvalidCachedStatementError behind poolers / after migrations).
+- Model safety (app/guard.py): SAFETY_RULES prompt + canary marker, regex pre-filter (no model call), StreamGuard (marker leak + verbatim-copy cutoff, 18-char holdback so pieces can be uneven). Tests: tests/test_guard.py and e2e.
 - Single uvicorn worker: rate limiter is in-memory. Move to Redis before scaling out.
 - No Alembic yet: schema.sql is idempotent create-only. Add migrations before changing existing tables in production.
 ## Next Step: Deploy to Render + Neon (see README), set env vars, log in, fill Settings -> marketing profile (site + works), add platform keys, create a test client, embed on your portfolio.

@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     public_base_url: str = "http://localhost:8000"
     contact_email: str = ""            # shown on /terms and /privacy; defaults to ADMIN_EMAIL
     debug: bool = False
+    max_verbatim_chars: int = 600      # a reply may not copy more than this many characters of the knowledge base word for word
     retention_days: int = 90           # chats older than this are deleted automatically
     sentry_dsn: str = ""               # optional error tracking
 

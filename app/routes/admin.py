@@ -90,7 +90,7 @@ async def patch_client(uid: int, body: ClientPatch):
                 d.pop("extend_days"), uid)
         for col in ("name", "notes", "plan", "active", "expires_at"):  # fixed allowlist, never user text
             if col in d:
-                await c.execute(f"UPDATE users SET {col}=$1 WHERE id=$2", d[col], uid)  # noqa: S608  # nosec B608 - column names come from a fixed allowlist
+                await c.execute(f"UPDATE users SET {col}=$1 WHERE id=$2", d[col], uid)  # noqa: S608  # nosec B608
     return {"ok": True}
 
 
@@ -136,7 +136,7 @@ class ModelPatch(BaseModel):
 async def patch_model(mid: int, body: ModelPatch):
     for col, val in body.model_dump(exclude_unset=True).items():
         if val is not None:  # ModelPatch fields are a fixed allowlist: label, enabled, premium_only
-            await db.pool.execute(f"UPDATE models SET {col}=$1 WHERE id=$2", val, mid)  # noqa: S608  # nosec B608 - column names come from a fixed allowlist
+            await db.pool.execute(f"UPDATE models SET {col}=$1 WHERE id=$2", val, mid)  # noqa: S608  # nosec B608
     return {"ok": True}
 
 

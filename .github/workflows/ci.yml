@@ -24,5 +24,5 @@ jobs:
       - run: ruff check app tests
       - run: bandit -q -r app -ll
       - run: pip-audit -r requirements.txt
-      - run: pytest -q tests/test_unit.py tests/test_ssrf_pin.py tests/test_llm.py tests/test_db_retry.py tests/test_schema_change.py tests/test_limits.py
+      - run: pytest -q tests/test_unit.py tests/test_ssrf_pin.py tests/test_llm.py tests/test_db_retry.py tests/test_schema_change.py tests/test_limits.py tests/test_guard.py
       - run: python -m tests.e2e
