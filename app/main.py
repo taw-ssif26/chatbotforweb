@@ -18,7 +18,9 @@ MAX_BODY = 11_000_000  # file uploads are capped at 10 MB in the handler; everyt
 
 if settings.sentry_dsn:
     import sentry_sdk
-    sentry_sdk.init(dsn=settings.sentry_dsn, send_default_pii=False, traces_sample_rate=0)
+    # Never ship request bodies (they contain chat text and API keys) or local variables to a third party.
+    sentry_sdk.init(dsn=settings.sentry_dsn, send_default_pii=False, traces_sample_rate=0,
+                    max_request_body_size="never", include_local_variables=False)
 
 
 async def retention_loop() -> None:
@@ -44,7 +46,7 @@ async def lifespan(app: FastAPI):
 
 
 class SecurityMiddleware:
-    """Pure ASGI (no response buffering, so SSE streams untouched): size cap + security headers."""
+    """Pure ASGI (no response buffering, so SSE streams untouched): request size cap (also for chunked bodies) + security headers."""
 
     def __init__(self, app):
         self.app = app
@@ -54,16 +56,29 @@ class SecurityMiddleware:
             return await self.app(scope, receive, send)
         headers = dict(scope["headers"])
         try:
-            too_big = int(headers.get(b"content-length", b"0")) > MAX_BODY
+            declared = int(headers.get(b"content-length", b"0"))
         except ValueError:
-            too_big = True
-        if too_big:
-            await send({"type": "http.response.start", "status": 413, "headers": [(b"content-type", b"application/json")]})
-            return await send({"type": "http.response.body", "body": b'{"detail":"Request too large"}'})
+            return await self._reject(send, 400, b'{"detail":"Bad request"}')
+        if declared > MAX_BODY:
+            return await self._reject(send, 413, b'{"detail":"Request too large"}')
         path = scope["path"]
         https = scope.get("scheme") == "https" or headers.get(b"x-forwarded-proto") == b"https"
+        received, rejected = 0, False
+
+        async def counted_receive():
+            nonlocal received, rejected
+            msg = await receive()
+            if msg["type"] == "http.request" and not rejected:
+                received += len(msg.get("body", b""))
+                if received > MAX_BODY:  # chunked upload without a Content-Length: answer 413 now, tell the app the client is gone
+                    rejected = True
+                    await self._reject(send, 413, b'{"detail":"Request too large"}')
+                    return {"type": "http.disconnect"}
+            return msg
 
         async def send_wrapped(msg):
+            if rejected:
+                return
             if msg["type"] == "http.response.start":
                 h = msg.setdefault("headers", [])
                 have = {k.lower() for k, _ in h}
@@ -75,7 +90,12 @@ class SecurityMiddleware:
                 h.extend(x for x in extra if x[0] not in have)
             await send(msg)
 
-        await self.app(scope, receive, send_wrapped)
+        await self.app(scope, counted_receive, send_wrapped)
+
+    @staticmethod
+    async def _reject(send, status: int, body: bytes):
+        await send({"type": "http.response.start", "status": status, "headers": [(b"content-type", b"application/json")]})
+        await send({"type": "http.response.body", "body": body})
 
 
 app = FastAPI(
@@ -102,9 +122,12 @@ app.include_router(admin.router)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 DASH_HEADERS = {
-    "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
     "Cache-Control": "no-cache", "Referrer-Policy": "no-referrer",
 }
+
+
+LEGAL_HEADERS = {"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'self'"}
 
 
 @app.get("/", include_in_schema=False)
@@ -124,12 +147,12 @@ async def demo():
 
 @app.get("/privacy", include_in_schema=False)
 async def privacy():
-    return HTMLResponse(legal.privacy())
+    return HTMLResponse(legal.privacy(), headers=LEGAL_HEADERS)
 
 
 @app.get("/terms", include_in_schema=False)
 async def terms():
-    return HTMLResponse(legal.terms())
+    return HTMLResponse(legal.terms(), headers=LEGAL_HEADERS)
 
 
 @app.get("/healthz", include_in_schema=False)

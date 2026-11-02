@@ -1,7 +1,8 @@
 """Runs the real app on :8099 with Voyage/Tavily/LLM faked, for tests/ui_test.cjs (needs an empty pgvector DB via .env)."""
 import os
 os.environ["PUBLIC_BASE_URL"] = "http://localhost:8099"
-import asyncio, hashlib
+import asyncio
+import hashlib
 import uvicorn
 from app import rag, llm
 from app.main import app

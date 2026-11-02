@@ -61,9 +61,12 @@ const fd = f => Object.fromEntries(new FormData(f));
 
 /* ---------- shell + routing ---------- */
 window.addEventListener('hashchange', route);
+let routeSeq = 0;
 async function route() {
+  const seq = ++routeSeq;  // a slower, older navigation must never overwrite a newer page
   if (!TOKEN) { app.innerHTML = loginView(); return; }
   try { ME = await api('/me'); } catch (e) { return; }
+  if (seq !== routeSeq) return;
   const [a = 'bots', b, c] = location.hash.replace(/^#\/?/, '').split('/');
   let body;
   try {
@@ -73,6 +76,7 @@ async function route() {
     else if (a === 'admin' && ME.role === 'admin') body = await adminView(b || 'clients');
     else body = await botsView();
   } catch (e) { body = `<p class="err">${E(e.message)}</p>`; }
+  if (seq !== routeSeq) return;
   app.innerHTML = shell(a, b, body);
 }
 function shell(a, b, body) {
@@ -235,7 +239,14 @@ forms.checksite = async f => {
   const r = await api(`/bots/${f.dataset.bot}/check-site`, { json: fd(f) });
   document.getElementById('siteresult').innerHTML = checkList(r);
 };
-actions.copy = async () => { await navigator.clipboard.writeText(document.getElementById('snip').textContent); toast('Copied'); };
+actions.copy = async () => {
+  const el = document.getElementById('snip');
+  try { await navigator.clipboard.writeText(el.textContent); toast('Copied'); }
+  catch (e) {  // clipboard blocked (permissions / non-https): select the text so Ctrl+C works
+    const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    toast('Press Ctrl+C (or Cmd+C) to copy the selected text');
+  }
+};
 
 /* ---------- API keys ---------- */
 async function keysView() {

@@ -45,10 +45,11 @@ class RetryPool:
         for attempt in (1, 2):
             try:
                 return await getattr(self._p, name)(*a, **k)
-            except (asyncpg.PostgresConnectionError, asyncpg.InterfaceError, ConnectionResetError, OSError) as e:
+            except (asyncpg.PostgresConnectionError, asyncpg.InterfaceError, asyncpg.exceptions.InvalidCachedStatementError,
+                    ConnectionResetError, OSError) as e:
                 if attempt == 2:
                     raise
-                log.warning("database connection problem, retrying once: %s", e)
+                log.warning("database problem (%s), retrying once: %s", type(e).__name__, e)
                 await asyncio.sleep(0.6)
 
     async def fetch(self, *a, **k): return await self._try("fetch", *a, **k)
@@ -56,6 +57,16 @@ class RetryPool:
     async def fetchval(self, *a, **k): return await self._try("fetchval", *a, **k)
     async def execute(self, *a, **k): return await self._try("execute", *a, **k)
     async def executemany(self, *a, **k): return await self._try("executemany", *a, **k)
+
+
+async def make_pool(url: str) -> RetryPool:
+    return RetryPool(await asyncpg.create_pool(
+        url, min_size=0, max_size=10, init=register_vector,
+        # No server-side statement cache: a deploy that adds a column (SELECT * !) must not break running connections,
+        # and it keeps working behind PgBouncer-style poolers such as Neon's pooled connection string.
+        statement_cache_size=0,
+        max_inactive_connection_lifetime=60,  # drop idle conns before Neon suspends compute (5 min) and kills them
+    ))
 
 
 async def init() -> None:
@@ -66,14 +77,11 @@ async def init() -> None:
         await migrate(conn)
     finally:
         await conn.close()
-    pool = RetryPool(await asyncpg.create_pool(
-        settings.database_url, min_size=0, max_size=10, init=register_vector,
-        max_inactive_connection_lifetime=60,  # drop idle conns before Neon suspends compute (5 min) and kills them
-    ))
+    pool = await make_pool(settings.database_url)
 
 
 async def migrate(conn) -> None:
-    """Apply app/migrations/*.sql in order, once each. Advisory lock keeps concurrent boots safe."""
+    """Apply app/migrations/*.sql in order, once each. An advisory lock keeps concurrent boots safe."""
     await conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations(name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())")
     await conn.execute("SELECT pg_advisory_lock(727274)")
     try:

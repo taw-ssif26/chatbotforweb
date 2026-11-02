@@ -3,15 +3,14 @@ import asyncio
 import logging
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
-import asyncpg
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from .. import db, llm, rag, security
-from ..deps import client_ip, current_user, failures, forget, limited, live, record, require_live
+from ..deps import auth_limited, client_ip, current_user, failures, forget, limited, live, record, require_live
 from ..plans import plan_for
 from .public import pick_model
 
@@ -30,12 +29,13 @@ class LoginIn(BaseModel):
 @router.post("/auth/login")
 async def login(body: LoginIn, request: Request):
     ip, email = client_ip(request), body.email.strip().lower()
-    if limited(f"login:{ip}", 10) or failures(f"lf:{email}", 900) >= 8 or failures(f"lfip:{ip}", 900) >= 20:
+    if auth_limited(f"login:{ip}", 20) or failures(f"lf:{email}", 900) >= 8 or failures(f"lfip:{ip}", 900) >= 20:
         raise HTTPException(429, "Too many attempts. Try again in a few minutes.")
     u = await db.pool.fetchrow("SELECT * FROM users WHERE lower(email)=$1", email)
     ok = await security.check_pw(body.password, u["password_hash"] if u else DUMMY_HASH)
     if not u or not ok or not u["active"]:
-        record(f"lf:{email}"); record(f"lfip:{ip}")
+        record(f"lf:{email}")
+        record(f"lfip:{ip}")
         raise HTTPException(401, "Wrong email or password, or the account is disabled.")
     forget(f"lf:{email}")
     return {"token": security.make_token(u["id"], u["token_version"])}
@@ -44,7 +44,7 @@ async def login(body: LoginIn, request: Request):
 @router.get("/me")
 async def me(u: dict = Depends(current_user)):
     plan = plan_for(u["role"], u["plan"])
-    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    month = datetime.now(UTC).strftime("%Y-%m")
     use = await db.pool.fetchrow("SELECT platform_msgs,total_msgs,web_searches FROM usage WHERE user_id=$1 AND month=$2", u["id"], month)
     use = dict(use) if use else {"platform_msgs": 0, "total_msgs": 0, "web_searches": 0}
     nb = await db.pool.fetchval("SELECT count(*) FROM bots WHERE user_id=$1", u["id"])
@@ -97,6 +97,8 @@ async def list_keys(u: dict = Depends(current_user)):
 async def add_key(body: KeyIn, u: dict = Depends(current_user)):
     if body.provider not in llm.PROVIDERS:
         raise HTTPException(400, "Unknown provider")
+    if limited(f"addkey:{u['id']}", 10, 3600):
+        raise HTTPException(429, "Too many keys added. Try again later.")
     if await db.pool.fetchval("SELECT count(*) FROM api_keys WHERE user_id=$1", u["id"]) >= 10:
         raise HTTPException(400, "Key limit reached (10)")
     k = body.key.strip()
@@ -107,7 +109,7 @@ async def add_key(body: KeyIn, u: dict = Depends(current_user)):
     try:
         await llm.list_models(body.provider, k)   # proves the key works before saving it
     except llm.LLMAuthError:
-        raise HTTPException(400, f"{body.provider} rejected this key. Check that you copied it fully and that it is active.")
+        raise HTTPException(400, f"{body.provider} rejected this key. Check that you copied it fully and that it is active.") from None
     except Exception:
         log.warning("could not verify %s key (provider unreachable); saving anyway", body.provider)
     await db.pool.execute(
@@ -126,14 +128,16 @@ async def key_models(kid: int, u: dict = Depends(current_user)):
     try:
         return {"provider": row["provider"], "models": await llm.list_models(row["provider"], security.decrypt(row["key_enc"]))}
     except llm.LLMAuthError:
-        raise HTTPException(400, "The provider rejected this key. It may have been revoked.")
+        raise HTTPException(400, "The provider rejected this key. It may have been revoked.") from None
     except Exception:
-        raise HTTPException(502, "Could not reach the provider to list models. You can still type a model ID by hand.")
+        raise HTTPException(502, "Could not reach the provider to list models. You can still type a model ID by hand.") from None
 
 
 @router.delete("/keys/{kid}")
 async def del_key(kid: int, u: dict = Depends(current_user)):
-    await db.pool.execute("DELETE FROM api_keys WHERE id=$1 AND user_id=$2", kid, u["id"])
+    async with db.pool.acquire() as c, c.transaction():
+        await c.execute("UPDATE bots SET custom_model=NULL WHERE api_key_id=$1 AND user_id=$2", kid, u["id"])
+        await c.execute("DELETE FROM api_keys WHERE id=$1 AND user_id=$2", kid, u["id"])
     return {"ok": True}
 
 
@@ -201,11 +205,18 @@ def norm_domain(d: str) -> str:
     return host.removeprefix("www.")
 
 
+NULLABLE_BOT_FIELDS = {"model_id", "api_key_id", "custom_model"}
+PATCHABLE_BOT_FIELDS = set(BotPatch.model_fields)  # the only columns a client can ever write
+
+
 @router.patch("/bots/{bid}")
 async def patch_bot(bid: int, body: BotPatch, u: dict = Depends(require_live)):
     await own_bot(bid, u)
     plan = plan_for(u["role"], u["plan"])
-    d = body.model_dump(exclude_unset=True)
+    # An explicit null is only meaningful for optional columns; for the rest it would violate NOT NULL, so ignore it.
+    d = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None or k in NULLABLE_BOT_FIELDS}
+    if "api_key_id" in d and not d["api_key_id"] and "custom_model" not in d:
+        d["custom_model"] = None  # a custom model ID only makes sense together with the client's own key
     if "color" in d and not HEX.match(d["color"] or ""):
         raise HTTPException(400, "Color must look like #2f5bff")
     if "position" in d and d["position"] not in ("left", "right"):
@@ -243,8 +254,9 @@ async def patch_bot(bid: int, body: BotPatch, u: dict = Depends(require_live)):
     if not d:
         return {"ok": True}
     cols = list(d)
+    assert set(cols) <= PATCHABLE_BOT_FIELDS  # column names are interpolated below: never user text
     sets = ", ".join(f"{c}=${i + 2}" for i, c in enumerate(cols))
-    await db.pool.execute(f"UPDATE bots SET {sets} WHERE id=$1", bid, *[d[c] for c in cols])
+    await db.pool.execute(f"UPDATE bots SET {sets} WHERE id=$1", bid, *[d[c] for c in cols])  # noqa: S608  # nosec B608 - column names come from a fixed allowlist
     return {"ok": True}
 
 
@@ -258,6 +270,8 @@ async def delete_bot(bid: int, u: dict = Depends(current_user)):
 # ---------------- knowledge ----------------
 async def ingest(u: dict, bot, kind: str, title: str, text: str):
     plan = plan_for(u["role"], u["plan"])
+    if limited(f"ingest:{u['id']}", 30, 3600):  # every ingest costs you an embedding call; deleting a source frees quota, so cap the rate
+        raise HTTPException(429, "You've added a lot of content in the last hour. Try again later.")
     text = rag.clean(text)
     if len(text) < 20:
         raise HTTPException(400, "No readable text found (pages rendered by JavaScript can't be read; paste the text instead)")
@@ -272,14 +286,14 @@ async def ingest(u: dict, bot, kind: str, title: str, text: str):
         vecs = await rag.embed([f"{title}\n{c}" for c in chunks], "document")
     except Exception:
         log.exception("embedding failed")
-        raise HTTPException(503, "Could not index this content right now. Please try again in a minute.")
+        raise HTTPException(503, "Could not index this content right now. Please try again in a minute.") from None
     async with db.pool.acquire() as c, c.transaction():
         sid = await c.fetchval(
             "INSERT INTO sources(bot_id, kind, title, chars) VALUES($1,$2,$3,$4) RETURNING id",
             bot["id"], kind, title[:200], len(text))
         await c.executemany(
             "INSERT INTO chunks(source_id, bot_id, content, embedding) VALUES($1,$2,$3,$4)",
-            [(sid, bot["id"], ch, v) for ch, v in zip(chunks, vecs)])
+            [(sid, bot["id"], ch, v) for ch, v in zip(chunks, vecs, strict=True)])
     return {"id": sid, "chunks": len(chunks)}
 
 
@@ -312,9 +326,9 @@ async def add_url(bid: int, body: UrlIn, u: dict = Depends(require_live)):
     try:
         title, text = await rag.fetch_url(body.url.strip())
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from None
     except Exception:
-        raise HTTPException(400, "Could not fetch that URL")
+        raise HTTPException(400, "Could not fetch that URL") from None
     return await ingest(u, bot, "url", title, text)
 
 
@@ -330,10 +344,10 @@ async def add_file(bid: int, file: UploadFile = File(...), u: dict = Depends(req
         try:
             text = await asyncio.to_thread(rag.pdf_to_text, data)
         except Exception:
-            raise HTTPException(400, "Could not read this PDF")
+            raise HTTPException(400, "Could not read this PDF") from None
     elif ext in ("txt", "md", "csv", "json", "html", "htm"):
         raw = data.decode("utf-8", "replace")
-        text = rag.html_to_text(raw)[1] if ext in ("html", "htm") else raw
+        text = (await asyncio.to_thread(rag.html_to_text, raw))[1] if ext in ("html", "htm") else raw
     else:
         raise HTTPException(400, "Supported files: PDF, TXT, MD, CSV, JSON, HTML")
     return await ingest(u, bot, "file", name, text)
@@ -354,7 +368,8 @@ async def conversations(bid: int, u: dict = Depends(current_user)):
         """SELECT c.id, c.last_at,
                   (SELECT count(*) FROM messages m WHERE m.conversation_id=c.id) AS n,
                   (SELECT content FROM messages m WHERE m.conversation_id=c.id AND role='user' ORDER BY id LIMIT 1) AS first
-           FROM conversations c WHERE c.bot_id=$1 ORDER BY c.last_at DESC LIMIT 50""", bid)
+           FROM conversations c WHERE c.bot_id=$1 AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.id)
+           ORDER BY c.last_at DESC LIMIT 50""", bid)
     return [dict(r) for r in rows]
 
 

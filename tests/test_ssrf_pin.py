@@ -5,7 +5,8 @@ os.environ.setdefault("JWT_SECRET", "x" * 40)
 os.environ.setdefault("FERNET_KEY", "wZl3hQ0xXfW3Qm0m0o3m8q7nTn1cC2Zl0m3J3kq0y9o=")
 os.environ.setdefault("ADMIN_EMAIL", "a@b.c")
 os.environ.setdefault("ADMIN_PASSWORD", "a-long-test-password")
-import asyncio, threading
+import asyncio
+import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 from app import rag

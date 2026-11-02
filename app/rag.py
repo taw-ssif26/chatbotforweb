@@ -61,6 +61,7 @@ async def embed(texts: list[str], input_type: str) -> list[list[float]]:
             "https://api.voyageai.com/v1/embeddings",
             headers={"Authorization": f"Bearer {settings.voyage_api_key}"},
             json={"input": texts[i:i + 64], "model": settings.voyage_model, "input_type": input_type, "output_dimension": 1024},
+            timeout=8 if input_type == "query" else 30,  # a slow embedding service must not stall a visitor's chat
         )
         if r.status_code != 200:
             raise RuntimeError(f"Voyage error {r.status_code}: {r.text[:200]}")
@@ -124,6 +125,14 @@ def pdf_to_text(data: bytes) -> str:
 
 
 async def _get(url: str) -> tuple[str, str, str, bytes]:
+    """Total deadline of 30 s so a trickling server can't hold a worker open."""
+    try:
+        return await asyncio.wait_for(_get_inner(url), 30)
+    except TimeoutError:
+        raise ValueError("The site took too long to respond") from None
+
+
+async def _get_inner(url: str) -> tuple[str, str, str, bytes]:
     """GET with <=4 redirects, each re-validated and IP-pinned; body capped at 2 MB. Returns (final_url, content_type, encoding, body)."""
     async with httpx.AsyncClient(timeout=15, follow_redirects=False, headers={"User-Agent": "ChatbotIngest/1.0"}) as c:
         for _ in range(5):

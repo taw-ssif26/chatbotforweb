@@ -1,5 +1,5 @@
 """Owner (admin) API: clients, models, agency profile, platform keys, stats."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,13 +8,13 @@ from pydantic import BaseModel, Field
 from .. import db, errors, llm, security
 from ..config import settings
 from ..deps import require_admin
-from ..plans import CLIENT_PLANS, PLANS
+from ..plans import CLIENT_PLANS
 
 router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
 
 
 def month() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m")
+    return datetime.now(UTC).strftime("%Y-%m")
 
 
 @router.get("/stats")
@@ -42,7 +42,7 @@ async def clients():
 
 
 class ClientIn(BaseModel):
-    email: str = Field(min_length=3, max_length=200)
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=200)
     name: str = Field(default="", max_length=100)
     password: str = Field(min_length=8, max_length=200)
     plan: str = "starter"
@@ -58,7 +58,7 @@ async def create_client(body: ClientIn):
             "INSERT INTO users(email,password_hash,name,plan,expires_at) VALUES(lower($1),$2,$3,$4, now() + make_interval(days => $5))",
             body.email.strip(), await security.hash_pw_async(body.password), body.name.strip(), body.plan, body.days)
     except asyncpg.UniqueViolationError:
-        raise HTTPException(409, "A user with that email already exists")
+        raise HTTPException(409, "A user with that email already exists") from None
     return {"ok": True}
 
 
@@ -76,7 +76,7 @@ class ClientPatch(BaseModel):
 async def patch_client(uid: int, body: ClientPatch):
     if not await db.pool.fetchval("SELECT 1 FROM users WHERE id=$1 AND role='client'", uid):
         raise HTTPException(404, "Client not found")
-    d = body.model_dump(exclude_unset=True)
+    d = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None or k == "expires_at"}
     if d.get("plan") and d["plan"] not in CLIENT_PLANS:
         raise HTTPException(400, "Unknown plan")
     async with db.pool.acquire() as c, c.transaction():
@@ -88,9 +88,9 @@ async def patch_client(uid: int, body: ClientPatch):
             await c.execute(
                 "UPDATE users SET expires_at = GREATEST(coalesce(expires_at, now()), now()) + make_interval(days => $1) WHERE id=$2",
                 d.pop("extend_days"), uid)
-        for col in ("name", "notes", "plan", "active", "expires_at"):
+        for col in ("name", "notes", "plan", "active", "expires_at"):  # fixed allowlist, never user text
             if col in d:
-                await c.execute(f"UPDATE users SET {col}=$1 WHERE id=$2", d[col], uid)
+                await c.execute(f"UPDATE users SET {col}=$1 WHERE id=$2", d[col], uid)  # noqa: S608  # nosec B608 - column names come from a fixed allowlist
     return {"ok": True}
 
 
@@ -122,7 +122,7 @@ async def add_model(body: ModelIn):
             "INSERT INTO models(label,provider,model_id,premium_only) VALUES($1,$2,$3,$4)",
             body.label.strip(), body.provider, body.model_id.strip(), body.premium_only)
     except asyncpg.UniqueViolationError:
-        raise HTTPException(409, "That model already exists")
+        raise HTTPException(409, "That model already exists") from None
     return {"ok": True}
 
 
@@ -135,7 +135,8 @@ class ModelPatch(BaseModel):
 @router.patch("/models/{mid}")
 async def patch_model(mid: int, body: ModelPatch):
     for col, val in body.model_dump(exclude_unset=True).items():
-        await db.pool.execute(f"UPDATE models SET {col}=$1 WHERE id=$2", val, mid)
+        if val is not None:  # ModelPatch fields are a fixed allowlist: label, enabled, premium_only
+            await db.pool.execute(f"UPDATE models SET {col}=$1 WHERE id=$2", val, mid)  # noqa: S608  # nosec B608 - column names come from a fixed allowlist
     return {"ok": True}
 
 

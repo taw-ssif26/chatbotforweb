@@ -60,9 +60,13 @@ Common causes: your site is not listed under **Allowed websites** (add `yourdoma
 - Chats auto-delete after `RETENTION_DAYS` (default 90). `/privacy` and `/terms` pages are served; the widget links to the privacy page.
 - Ops: optional Sentry (`SENTRY_DSN`), weekly DB backup workflow (`.github/workflows/backup.yml`, needs a `DATABASE_URL` repo secret), SQL migrations in `app/migrations/`.
 
+## Quality gates
+`ruff check app tests`, `bandit -r app -ll` and `pip-audit -r requirements.txt` are clean and run in CI. See SECURITY.md for the threat model, known limits and the owner checklist. **Back up `FERNET_KEY`**: without it saved API keys cannot be decrypted.
+
 ## Tests
 ```bash
-pip install -r requirements-dev.txt && pytest tests/test_unit.py
+pip install -r requirements-dev.txt
+TEST_DATABASE_URL=postgresql://... pytest tests/test_unit.py tests/test_ssrf_pin.py tests/test_llm.py tests/test_db_retry.py tests/test_schema_change.py tests/test_limits.py
 python -m tests.e2e    # needs an EMPTY pgvector Postgres from .env; fakes Voyage, Tavily and the LLM
 # widget + dashboard in a simulated browser AND real headless Chrome (installed via npm, no system Chrome needed):
 (cd tests && npm install)

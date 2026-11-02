@@ -12,7 +12,7 @@ from app.db import RetryPool
 
 class Flaky:
     def __init__(self, fails, exc): self.fails, self.exc, self.calls = fails, exc, 0
-    async def fetchval(self, *a): 
+    async def fetchval(self, *a):
         self.calls += 1
         if self.calls <= self.fails: raise self.exc
         return 42

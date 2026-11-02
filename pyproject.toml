@@ -1,0 +1,13 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 140
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "S", "UP", "ASYNC", "SIM"]
+ignore = ["E501", "S101", "S105", "S106", "B008", "UP007", "SIM108"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "E701", "E702", "E731", "E741", "B", "SIM"]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"

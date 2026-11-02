@@ -3,11 +3,12 @@ import time
 
 import bcrypt
 import jwt
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 
 from .config import settings
 
-_fernet = Fernet(settings.fernet_key.encode())
+# FERNET_KEY may hold several comma-separated keys for rotation: the first encrypts, all of them decrypt.
+_fernet = MultiFernet([Fernet(k.strip().encode()) for k in settings.fernet_key.split(",") if k.strip()])
 TOKEN_TTL = 3 * 86400
 
 

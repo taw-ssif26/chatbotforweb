@@ -1,0 +1,28 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env: { POSTGRES_USER: chatbot, POSTGRES_PASSWORD: chatbot, POSTGRES_DB: chatbot }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U chatbot" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://chatbot:chatbot@localhost:5432/chatbot
+      TEST_DATABASE_URL: postgresql://chatbot:chatbot@localhost:5432/chatbot
+      JWT_SECRET: ci-secret-ci-secret-ci-secret-ci-secret-1234
+      FERNET_KEY: wZl3hQ0xXfW3Qm0m0o3m8q7nTn1cC2Zl0m3J3kq0y9o=
+      ADMIN_EMAIL: owner@test.dev
+      ADMIN_PASSWORD: owner-password-123
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt ruff bandit pip-audit
+      - run: ruff check app tests
+      - run: bandit -q -r app -ll
+      - run: pip-audit -r requirements.txt
+      - run: pytest -q tests/test_unit.py tests/test_ssrf_pin.py tests/test_llm.py tests/test_db_retry.py tests/test_schema_change.py tests/test_limits.py
+      - run: python -m tests.e2e

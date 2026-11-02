@@ -1,47 +1,73 @@
 import time
-from collections import defaultdict, deque
-from datetime import datetime, timezone
+from collections import OrderedDict, deque
+from datetime import UTC, datetime
 
 from fastapi import Depends, Header, HTTPException, Request
 
 from . import db, security
 from .config import settings
 
-_hits: dict[str, deque] = defaultdict(deque)
+class SlidingWindow:
+    """In-memory sliding-window counters with a hard cap on distinct keys (least-recently-used keys are evicted).
+    The cap means a flood of random keys can never grow memory without bound or wipe everyone's counters at once."""
+
+    def __init__(self, max_keys: int = 50_000):
+        self.max_keys, self._d = max_keys, OrderedDict()
+
+    def _bucket(self, key: str) -> deque:
+        q = self._d.get(key)
+        if q is None:
+            q = self._d[key] = deque()
+            if len(self._d) > self.max_keys:
+                for _ in range(self.max_keys // 10):
+                    self._d.popitem(last=False)
+        else:
+            self._d.move_to_end(key)
+        return q
+
+    def count(self, key: str, window: int) -> int:
+        q, now = self._bucket(key), time.monotonic()
+        while q and now - q[0] > window:
+            q.popleft()
+        return len(q)
+
+    def add(self, key: str) -> None:
+        self._bucket(key).append(time.monotonic())
+
+    def hit(self, key: str, limit: int, window: int) -> bool:
+        """Record a hit; True means the caller is over the limit (and the hit is not recorded)."""
+        if self.count(key, window) >= limit:
+            return True
+        self.add(key)
+        return False
+
+    def clear(self, key: str | None = None) -> None:
+        self._d.clear() if key is None else self._d.pop(key, None)
 
 
-def _prune(q: deque, window: int, now: float) -> None:
-    while q and now - q[0] > window:
-        q.popleft()
+# Two separate stores: visitor traffic can never evict login-lockout counters.
+chat_limits = SlidingWindow()
+auth_limits = SlidingWindow()
 
 
 def limited(key: str, limit: int, window: int = 60) -> bool:
-    """Sliding-window limiter, in-memory (single worker). Records a hit; True means over the limit."""
-    now = time.monotonic()
-    if len(_hits) > 20000:
-        _hits.clear()
-    q = _hits[key]
-    _prune(q, window, now)
-    if len(q) >= limit:
-        return True
-    q.append(now)
-    return False
+    return chat_limits.hit(key, limit, window)
+
+
+def auth_limited(key: str, limit: int, window: int = 60) -> bool:
+    return auth_limits.hit(key, limit, window)
 
 
 def failures(key: str, window: int) -> int:
-    q = _hits.get(key)
-    if not q:
-        return 0
-    _prune(q, window, time.monotonic())
-    return len(q)
+    return auth_limits.count(key, window)
 
 
 def record(key: str) -> None:
-    _hits[key].append(time.monotonic())
+    auth_limits.add(key)
 
 
 def forget(key: str) -> None:
-    _hits.pop(key, None)
+    auth_limits.clear(key)
 
 
 def client_ip(request: Request) -> str:
@@ -58,7 +84,7 @@ def client_ip(request: Request) -> str:
 def live(role: str, active: bool, expires_at) -> bool:
     if not active:
         return False
-    return role == "admin" or (expires_at is not None and expires_at > datetime.now(timezone.utc))
+    return role == "admin" or (expires_at is not None and expires_at > datetime.now(UTC))
 
 
 async def current_user(authorization: str | None = Header(default=None)) -> dict:
