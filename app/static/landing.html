@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{TITLE}}</title>
+<meta name="description" content="{{DESCRIPTION}}">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{TITLE}}">
+<meta property="og:description" content="{{DESCRIPTION}}">
+<meta name="twitter:card" content="summary">
+<meta name="color-scheme" content="light dark">
+<script src="/static/theme.js"></script>
+<link rel="stylesheet" href="/static/landing.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div id="bar" class="bar" hidden></div>
+<header class="nav" id="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top" id="brand">{{BRAND}}</a>
+    <nav aria-label="Main" class="links" id="menu">
+      <a href="#features">Features</a><a href="#how">How it works</a><a href="#pricing">Pricing</a><a href="#contact">Contact</a>
+      <button class="menu-theme" id="themebtn2" type="button"></button>
+      <a class="btn primary menu-cta" href="#contact">Get access</a>
+    </nav>
+    <div class="nav-end">
+      <button class="icon-btn" id="themebtn" type="button" aria-label="Change theme"></button>
+      <a class="btn small ghost console" id="console" href="/app">Console</a>
+      <a class="btn small primary getaccess" href="#contact">Get access</a>
+      <button class="icon-btn menu-btn" id="menubtn" type="button" aria-expanded="false" aria-controls="menu" aria-label="Open menu"></button>
+    </div>
+  </div>
+</header>
+<a class="pill" id="pill" href="#contact" hidden>Get access</a>
+
+<main id="main">
+<section class="hero" id="top">
+  <div class="wrap hero-in">
+    <div class="hero-copy">
+      <p class="eyebrow">AI chatbot for any website</p>
+      <h1 id="headline">{{HEADLINE}}</h1>
+      <p class="lead" id="subheadline">{{SUBHEADLINE}}</p>
+      <div class="cta">
+        <a class="btn primary" href="#contact">Get access</a>
+        <button class="btn ghost" id="demobtn" type="button" hidden>Try the live demo</button>
+      </div>
+      <ul class="chips" aria-label="Highlights"><li>One-line install</li><li>Your own AI keys</li><li>Set up for you</li></ul>
+      <p class="fine">No sign-up form. <a href="#access">I set up every account personally.</a></p>
+    </div>
+    <div class="hero-art" aria-hidden="true">
+      <div class="browser">
+        <div class="browser-bar"><i></i><i></i><i></i><span>yourwebsite.com</span></div>
+        <div class="browser-body">
+          <div class="sk w60"></div><div class="sk w90"></div><div class="sk w75"></div><div class="sk block"></div>
+          <div class="mock-chat">
+            <div class="mock-head">Your assistant</div>
+            <div class="mock-msg bot">Hi! How can I help you today?</div>
+            <div class="mock-msg user">Do you deliver on weekends?</div>
+            <div class="mock-msg bot">Yes, Saturday and Sunday, 9am to 6pm. <span class="dots"><i></i><i></i><i></i></span></div>
+          </div>
+        </div>
+      </div>
+      <pre class="snippet"><code id="snippet"></code></pre>
+    </div>
+  </div>
+</section>
+
+<section id="offers" class="wrap block" hidden>
+  <div class="sec-head"><p class="eyebrow hot">Special offers</p><h2>Right now</h2></div>
+  <div class="offers" id="offerlist"></div>
+</section>
+<div class="wrap" id="ads" hidden></div>
+
+<section id="features" class="wrap block">
+  <div class="sec-head"><p class="eyebrow">What you get</p><h2>Everything a website assistant needs</h2></div>
+  <div class="grid3" id="featurelist"></div>
+</section>
+
+<section id="how" class="wrap block">
+  <div class="sec-head"><p class="eyebrow">How it works</p><h2>Live in three steps</h2></div>
+  <ol class="steps">
+    <li><b>1</b><h3>Message me</h3><p>WhatsApp, email or the form below. Tell me about your website.</p></li>
+    <li><b>2</b><h3>I create your profile</h3><p>I set up your account, your chatbot and your AI model for you.</p></li>
+    <li><b>3</b><h3>Add content, paste one line</h3><p>Upload your information, copy one line into your site, done.</p></li>
+  </ol>
+</section>
+
+<section id="pricing" class="wrap block">
+  <div class="sec-head"><p class="eyebrow">Pricing</p><h2>Simple monthly plans</h2><p class="muted">Billed monthly, arranged directly with me. No automatic charges.</p></div>
+  <div class="plans" id="planlist"></div>
+</section>
+
+<section id="access" class="wrap block">
+  <div class="access card">
+    <h2>Why there is no sign-up button</h2>
+    <div class="grid3 tight">
+      <div><h3>Your keys stay safe</h3><p>The chatbot uses your private AI keys and business content. Open registration would put them at risk.</p></div>
+      <div><h3>Set up properly</h3><p>I configure the assistant for your business, so it answers well from day one.</p></div>
+      <div><h3>A real person</h3><p>You deal with me directly, before and after launch.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="about" class="wrap block">
+  <div class="sec-head"><p class="eyebrow">Behind the product</p><h2 id="aboutname">About me</h2></div>
+  <p class="about-bio" id="aboutbio"></p>
+  <div class="works" id="works"></div>
+</section>
+
+<section id="contact" class="wrap block">
+  <div class="sec-head"><p class="eyebrow">Get access</p><h2>Let's talk</h2><p class="muted">Pick whatever is easiest. I usually reply the same day.</p></div>
+  <div class="contact-grid">
+    <div class="channels" id="channels"></div>
+    <form class="card form" id="leadform" novalidate>
+      <h3>Or send a request</h3>
+      <label for="ln">Your name</label><input id="ln" name="name" maxlength="100" autocomplete="name" required>
+      <label for="lc">Email or WhatsApp number</label><input id="lc" name="contact" maxlength="200" autocomplete="email" required>
+      <label for="lm">About your website <span class="muted">(optional)</span></label><textarea id="lm" name="message" maxlength="1000" rows="4"></textarea>
+      <div class="hp" aria-hidden="true"><label for="lw">Leave this empty</label><input id="lw" name="website" tabindex="-1" autocomplete="off"></div>
+      <button class="btn primary" type="submit">Request access</button>
+      <p class="form-msg" id="formmsg" role="status"></p>
+    </form>
+  </div>
+</section>
+
+<section id="faq" class="wrap block narrow">
+  <div class="sec-head"><p class="eyebrow">Questions</p><h2>Good to know</h2></div>
+  <details><summary>Do I need to know how to code?</summary><p>No. You paste one line into your website, usually in a settings box. If you get stuck I will help.</p></details>
+  <details><summary>Which AI models can it use?</summary><p>Claude, GPT, Llama (via Groq), Grok (via xAI) and OpenRouter. You can use your own AI key or the included ones.</p></details>
+  <details><summary>How is my data protected?</summary><p>API keys are encrypted, the assistant is built not to reveal its instructions or dump your documents, and the chat can be limited to your own domains.</p></details>
+  <details><summary>How does billing work?</summary><p>Monthly, arranged directly with me. Nothing is charged automatically.</p></details>
+  <details><summary>What happens to visitor chats?</summary><p>You can read them in your dashboard, delete them any time, and they are deleted automatically after 90 days.</p></details>
+  <details><summary>Why can't I just sign up?</summary><p>So your keys and content stay safe and I can set everything up for your business. Message me and I will create your profile.</p></details>
+</section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span id="copy"></span>
+    <nav aria-label="Footer"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/app">Customer sign-in</a></nav>
+  </div>
+</footer>
+<script src="/static/landing.js"></script>
+</body>
+</html>

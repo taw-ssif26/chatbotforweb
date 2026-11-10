@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Widget test page</title>
+<style>body{font:16px/1.6 system-ui,sans-serif;max-width:640px;margin:10vh auto;padding:0 20px;color:#14203a}code{background:#eef1f6;padding:2px 6px;border-radius:4px}
+#status{padding:12px 14px;border-radius:10px;margin:18px 0;border:1px solid #d8deea;background:#f7f9fc}#status.ok{border-color:#9ad3ae;background:#e8f6ed}#status.bad{border-color:#f0b4ae;background:#fdecea}</style></head>
+<body><h1>Widget test page</h1>
+<p>This page behaves like a customer website. The chat bubble should appear in the bottom corner.</p>
+<div id="status">Checking…</div>
+<p>Open it as <code>/demo?bot=YOUR_BOT_KEY</code>.</p>
+<script>
+  var k = new URLSearchParams(location.search).get('bot'), st = document.getElementById('status');
+  function say(cls, t) { st.className = cls; st.textContent = t; }
+  if (!k) say('bad', 'No bot key in the address. Use the "Open test page" button from the bot\'s Install tab.');
+  else fetch('/api/public/config/' + encodeURIComponent(k)).then(function (r) {
+    return r.json().then(function (j) { return [r.ok, j]; });
+  }).then(function (x) {
+    if (!x[0]) return say('bad', 'The bubble is hidden: ' + (x[1].detail || 'unknown reason'));
+    say('ok', 'Bot found: "' + x[1].name + '". Look for the chat bubble in the bottom ' + x[1].position + ' corner.');
+    var s = document.createElement('script'); s.src = '/widget.js'; s.async = true; s.dataset.bot = k; document.body.appendChild(s);
+  }).catch(function (e) { say('bad', 'Could not reach the server: ' + e.message); });
+</script></body></html>

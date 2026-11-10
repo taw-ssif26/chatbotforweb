@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: chatbot-saas
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - { key: DATABASE_URL, sync: false }
+      - { key: JWT_SECRET, generateValue: true }
+      - { key: FERNET_KEY, sync: false }
+      - { key: ADMIN_EMAIL, sync: false }
+      - { key: ADMIN_PASSWORD, sync: false }
+      - { key: PUBLIC_BASE_URL, sync: false }
+      - { key: VOYAGE_API_KEY, sync: false }
+      - { key: TAVILY_API_KEY, sync: false }
+      - { key: GROQ_API_KEY, sync: false }
+      - { key: BREVO_API_KEY, sync: false }
+      - { key: EMAIL_FROM, sync: false }
+      - { key: CONTACT_EMAIL, sync: false }
+      - { key: SENTRY_DSN, sync: false }
+      - { key: CLIENT_IP_HEADER, value: true-client-ip }

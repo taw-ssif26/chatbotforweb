@@ -1,0 +1,1 @@
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS appearance JSONB NOT NULL DEFAULT '{}'::jsonb;
